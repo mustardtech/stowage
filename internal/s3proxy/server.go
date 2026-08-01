@@ -4,6 +4,7 @@
 package s3proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -151,8 +153,11 @@ func NewServer(cfg Config) *Server {
 			MaxIdleConns:        512,
 			MaxIdleConnsPerHost: 256,
 			MaxConnsPerHost:     256,
-			IdleConnTimeout:     90 * time.Second,
-			ForceAttemptHTTP2:   true,
+			// Kept below the idle timeout of common backends/LBs (ELB 60s,
+			// nginx 75s) so the pool ages out connections before the peer
+			// does — a peer-closed keep-alive handed to a write is a 502.
+			IdleConnTimeout:   30 * time.Second,
+			ForceAttemptHTTP2: true,
 		},
 	}
 	if cfg.AdminCredsOverride != nil {
@@ -341,18 +346,30 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, reqID string) ser
 		return out
 	}
 
-	// For aws-chunked inbound bodies, swap r.Body for a signature-verifying
-	// reader. Outbound goes as UNSIGNED-PAYLOAD with Content-Length taken
-	// from X-Amz-Decoded-Content-Length.
-	if res.PayloadHash == sigv4verifier.StreamingPayload {
+	// For aws-chunked inbound bodies, swap r.Body for a decoding reader.
+	// Outbound goes as UNSIGNED-PAYLOAD with Content-Length taken from
+	// X-Amz-Decoded-Content-Length. The signed variant additionally
+	// verifies per-chunk signatures; the unsigned-trailer variant (the
+	// default for SDKs with flexible checksums) is decode-only.
+	if res.PayloadHash == sigv4verifier.StreamingPayload || res.PayloadHash == sigv4verifier.StreamingUnsignedTrailer {
 		decoded, err := strconv.ParseInt(r.Header.Get("X-Amz-Decoded-Content-Length"), 10, 64)
 		if err != nil {
 			writeS3Error(w, http.StatusBadRequest, "InvalidRequest", "missing or bad X-Amz-Decoded-Content-Length", r.URL.Path, reqID)
 			out.status, out.result = http.StatusBadRequest, "bad-chunked-header"
 			return out
 		}
-		r.Body = io.NopCloser(sigv4verifier.NewChunkedReader(r.Body, res.SigningKey, res.SeedSignature, res.Region, res.Service, res.Date))
+		if res.PayloadHash == sigv4verifier.StreamingPayload {
+			r.Body = io.NopCloser(sigv4verifier.NewChunkedReader(r.Body, res.SigningKey, res.SeedSignature, res.Region, res.Service, res.Date))
+		} else {
+			r.Body = io.NopCloser(sigv4verifier.NewUnsignedChunkedReader(r.Body))
+		}
 		r.ContentLength = decoded
+		// The outbound body is the decoded payload: the forwarded
+		// Content-Length must be the decoded length, and the aws-chunked
+		// wrapper must come off Content-Encoding or the backend stores it
+		// as the object's encoding.
+		r.Header.Set("Content-Length", strconv.FormatInt(decoded, 10))
+		StripAwsChunkedEncoding(r.Header)
 	}
 
 	vc, ok := s.cfg.Source.Lookup(res.AccessKeyID)
@@ -430,9 +447,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, reqID string) ser
 	}
 
 	upStart := time.Now()
-	resp, err := s.transport.RoundTrip(outReq)
+	resp, err := s.doUpstream(outReq)
 	s.cfg.Metrics.Upstream.WithLabelValues(out.operation).Observe(time.Since(upStart).Seconds())
 	if err != nil {
+		if r.Context().Err() != nil {
+			// The client went away; there is nothing to write and nothing
+			// wrong with the backend.
+			out.status, out.result = statusClientClosedRequest, "client-cancelled"
+			return out
+		}
 		writeS3Error(w, http.StatusBadGateway, "InternalError", err.Error(), r.URL.Path, reqID)
 		out.status, out.result = http.StatusBadGateway, "upstream-error"
 		return out
@@ -571,9 +594,13 @@ func (s *Server) serveAnonymous(w http.ResponseWriter, r *http.Request, reqID st
 	}
 
 	upStart := time.Now()
-	resp, err := s.transport.RoundTrip(outReq)
+	resp, err := s.doUpstream(outReq)
 	s.cfg.Metrics.Upstream.WithLabelValues(out.operation).Observe(time.Since(upStart).Seconds())
 	if err != nil {
+		if r.Context().Err() != nil {
+			out.status, out.result = statusClientClosedRequest, "client-cancelled"
+			return out
+		}
 		writeS3Error(w, http.StatusBadGateway, "InternalError", err.Error(), r.URL.Path, reqID)
 		out.status, out.result = http.StatusBadGateway, "upstream-error"
 		return out
@@ -624,7 +651,22 @@ func (s *Server) buildOutbound(r *http.Request, route RouteInfo, realBucket stri
 	// the outbound as a query-string-signed request against the VC's AKID.
 	outURL.RawQuery = StripPresignedQuery(r.URL.RawQuery)
 
-	out, err := http.NewRequestWithContext(r.Context(), r.Method, outURL.String(), r.Body)
+	// Bodies up to maxReplayableBody are buffered into memory so the
+	// outbound request gains a GetBody rewinder. Without one, a write that
+	// lands on a pooled connection the backend already closed cannot be
+	// replayed on a fresh dial and surfaces as an instant 502.
+	var body io.Reader = r.Body
+	if r.Body != nil && r.ContentLength > 0 && r.ContentLength <= maxReplayableBody {
+		buf, err := io.ReadAll(io.LimitReader(r.Body, r.ContentLength))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(buf)) != r.ContentLength {
+			return nil, fmt.Errorf("request body shorter than declared length %d", r.ContentLength)
+		}
+		body = bytes.NewReader(buf)
+	}
+	out, err := http.NewRequestWithContext(r.Context(), r.Method, outURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -636,6 +678,49 @@ func (s *Server) buildOutbound(r *http.Request, route RouteInfo, realBucket stri
 	}
 	_ = spec
 	return out, nil
+}
+
+// maxReplayableBody caps how much of an inbound body buildOutbound buffers
+// to make the outbound request replayable. Larger bodies stream directly
+// and forgo the stale-connection retry.
+const maxReplayableBody = 1 << 20
+
+// statusClientClosedRequest is nginx's non-standard 499 for requests
+// abandoned by the client. It never reaches the client (which is gone); it
+// exists so logs, metrics, and audit don't misreport a backend failure.
+const statusClientClosedRequest = 499
+
+// doUpstream performs the outbound round trip, retrying once on a fresh
+// connection when the pooled keep-alive turned out to be dead and the body
+// can be replayed (or there is none). Go's transport only self-retries
+// idempotent methods, which excludes every S3 write.
+func (s *Server) doUpstream(outReq *http.Request) (*http.Response, error) {
+	resp, err := s.transport.RoundTrip(outReq)
+	if err == nil || outReq.Context().Err() != nil || !isStaleConnErr(err) {
+		return resp, err
+	}
+	if outReq.Body != nil && outReq.GetBody == nil {
+		return resp, err
+	}
+	retry := outReq.Clone(outReq.Context())
+	if outReq.GetBody != nil {
+		body, gerr := outReq.GetBody()
+		if gerr != nil {
+			return resp, err
+		}
+		retry.Body = body
+	}
+	return s.transport.RoundTrip(retry)
+}
+
+// isStaleConnErr reports whether err looks like the reused keep-alive
+// connection died under us before any response arrived.
+func isStaleConnErr(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	return strings.Contains(err.Error(), "server closed idle connection")
 }
 
 func (s *Server) signOutbound(ctx context.Context, req *http.Request, backendName string, spec BackendSpec) error {

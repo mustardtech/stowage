@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -449,5 +450,83 @@ func TestBucketClaimReconciler_AnonymousBindingLifecycle(t *testing.T) {
 			var s corev1.Secret
 			err := c.Client.Get(ctx, types.NamespacedName{Namespace: opsNS, Name: bindingName}, &s)
 			return apierrors.IsNotFound(err), nil
+		})
+}
+
+// TestBucketClaimReconciler_QuotaUpdatePropagates verifies that editing
+// BucketClaim.spec.quota after the claim is Bound propagates to the
+// internal vc-<akid> Secret's quota_soft_bytes/quota_hard_bytes, which is
+// what the proxy enforces. Today the quota is stamped only when the
+// credential Secret is first created (or rotated), so spec edits are
+// silently ignored until someone hand-patches the Secret.
+func TestBucketClaimReconciler_QuotaUpdatePropagates(t *testing.T) {
+	c := MustConnect(t)
+	ctx := WithTimeout(t, 150*time.Second)
+
+	opsNS := EnsureOpsNamespace(t, ctx, c.Client)
+	tenantNS := NewNamespace(t, ctx, c.Client, "tenant")
+	backendName := UniqueName("backend-quota")
+	adminName := UniqueName("admin")
+
+	fake := NewFakeS3(t)
+	makeAdminSecret(t, ctx, c.Client, opsNS, adminName, "AKIAFAKE", "fakesecret")
+
+	StartOperatorManager(t, c, ManagerOptions{
+		OpsNamespace:    opsNS,
+		WatchNamespaces: []string{tenantNS},
+	})
+	deleteBackendOnCleanup(t, c.Client, backendName)
+
+	if err := c.Client.Create(ctx, readyBackend(backendName, opsNS, fake.URL(), adminName)); err != nil {
+		t.Fatalf("create backend: %v", err)
+	}
+	waitBackendReady(t, c.Client, backendName, metav1.ConditionTrue)
+
+	soft := resource.MustParse("100Mi")
+	hard := resource.MustParse("1Gi")
+	claim := &brokerv1a1.BucketClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "quota-edit", Namespace: tenantNS},
+		Spec: brokerv1a1.BucketClaimSpec{
+			BackendRef:     brokerv1a1.BackendRef{Name: backendName},
+			DeletionPolicy: brokerv1a1.DeletionPolicyDelete,
+			Quota:          &brokerv1a1.BucketQuota{Soft: &soft, Hard: &hard},
+		},
+	}
+	if err := c.Client.Create(ctx, claim); err != nil {
+		t.Fatalf("create claim: %v", err)
+	}
+	bound := waitClaimPhase(t, c.Client, tenantNS, "quota-edit", brokerv1a1.PhaseBound)
+	vcName := vcstore.InternalSecretName(bound.Status.AccessKeyID)
+
+	var vcSecret corev1.Secret
+	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: opsNS, Name: vcName}, &vcSecret); err != nil {
+		t.Fatalf("get internal VC secret: %v", err)
+	}
+	if got := string(vcSecret.Data[vcstore.DataQuotaHardBytes]); got != strconv.FormatInt(hard.Value(), 10) {
+		t.Fatalf("initial quota_hard_bytes: want %d, got %q", hard.Value(), got)
+	}
+
+	// Raise the quota on the live claim.
+	newSoft := resource.MustParse("200Mi")
+	newHard := resource.MustParse("2Gi")
+	var live brokerv1a1.BucketClaim
+	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: tenantNS, Name: "quota-edit"}, &live); err != nil {
+		t.Fatalf("get claim: %v", err)
+	}
+	live.Spec.Quota = &brokerv1a1.BucketQuota{Soft: &newSoft, Hard: &newHard}
+	if err := c.Client.Update(ctx, &live); err != nil {
+		t.Fatalf("update claim quota: %v", err)
+	}
+
+	// The vc Secret must converge to the new quota without a credential
+	// rotation (same Secret name / AKID).
+	Eventually(t, 30*time.Second, 250*time.Millisecond,
+		"vc secret quota updated to 200Mi/2Gi", func() (bool, error) {
+			var s corev1.Secret
+			if err := c.Client.Get(ctx, types.NamespacedName{Namespace: opsNS, Name: vcName}, &s); err != nil {
+				return false, err
+			}
+			return string(s.Data[vcstore.DataQuotaSoftBytes]) == strconv.FormatInt(newSoft.Value(), 10) &&
+				string(s.Data[vcstore.DataQuotaHardBytes]) == strconv.FormatInt(newHard.Value(), 10), nil
 		})
 }

@@ -14,7 +14,7 @@ Licensed [AGPL-3.0-or-later](./LICENSE) — no community edition, no enterprise 
 
 ## Quickstart
 
-Pick where you want Stowage to live. Full walkthroughs: [one-liner](https://stowage.dev/docs/getting-started/quickstart-oneliner) · [Docker Compose](https://stowage.dev/docs/getting-started/quickstart-compose) · [Kubernetes](https://stowage.dev/docs/getting-started/quickstart-kubernetes).
+Pick where you want Stowage to live. Full walkthroughs: [one-liner](https://stowage.dev/docs/getting-started/quickstart-oneliner) · [Docker Compose](https://stowage.dev/docs/getting-started/quickstart-compose) · [Kubernetes](https://stowage.dev/docs/getting-started/quickstart-kubernetes).`
 
 ### One-liner (Linux, macOS, WSL)
 

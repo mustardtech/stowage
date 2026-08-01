@@ -24,6 +24,11 @@ const UnsignedPayload = "UNSIGNED-PAYLOAD"
 // StreamingPayload is the placeholder used by aws-chunked signed streams.
 const StreamingPayload = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
 
+// StreamingUnsignedTrailer is the placeholder used by aws-chunked streams
+// with unsigned chunks and trailing checksums — the default PutObject wire
+// format for SDKs with flexible checksums (aws-sdk-go-v2, aws CLI >= 2.23).
+const StreamingUnsignedTrailer = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+
 // CanonicalRequest builds the canonical request string defined by the spec:
 //
 //	HTTPMethod\n

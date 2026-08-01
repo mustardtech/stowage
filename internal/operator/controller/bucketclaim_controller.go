@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -299,10 +300,41 @@ func (r *BucketClaimReconciler) ensureCredential(ctx context.Context, claim *bro
 	}
 
 	sec := active[0]
-	return credentials.VirtualKey{
+	key := credentials.VirtualKey{
 		AccessKeyID:     string(sec.Data[vcstore.DataAccessKeyID]),
 		SecretAccessKey: string(sec.Data[vcstore.DataSecretAccessKey]),
-	}, nil, nil
+	}
+
+	// Quota lives on the credential Secret but is owned by the claim spec:
+	// re-stamp it whenever the spec drifts from what the Secret carries,
+	// not just at credential creation/rotation.
+	soft, hard := quotaBytes(claim.Spec.Quota)
+	if string(sec.Data[vcstore.DataQuotaSoftBytes]) != quotaField(soft) ||
+		string(sec.Data[vcstore.DataQuotaHardBytes]) != quotaField(hard) {
+		if err := r.Writer.WriteInternal(ctx, vcstore.VirtualCredential{
+			AccessKeyID:     key.AccessKeyID,
+			SecretAccessKey: key.SecretAccessKey,
+			BucketName:      bucketName,
+			ClaimNamespace:  claim.Namespace,
+			ClaimName:       claim.Name,
+			ClaimUID:        string(claim.UID),
+			BackendName:     bck.Name,
+			QuotaSoftBytes:  soft,
+			QuotaHardBytes:  hard,
+		}); err != nil {
+			return credentials.VirtualKey{}, nil, err
+		}
+	}
+	return key, nil, nil
+}
+
+// quotaField renders a quota byte count the way WriteInternal serialises it
+// into Secret data: decimal digits, or absent (empty) when unset.
+func quotaField(v int64) string {
+	if v <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(v, 10)
 }
 
 func (r *BucketClaimReconciler) rotationDue(claim *brokerv1a1.BucketClaim, active []corev1.Secret) bool {

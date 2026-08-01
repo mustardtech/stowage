@@ -259,9 +259,13 @@ func (s *Server) servePostObject(w http.ResponseWriter, r *http.Request, route R
 	}
 
 	upStart := time.Now()
-	resp, err := s.transport.RoundTrip(outReq)
+	resp, err := s.doUpstream(outReq)
 	s.cfg.Metrics.Upstream.WithLabelValues(out.operation).Observe(time.Since(upStart).Seconds())
 	if err != nil {
+		if r.Context().Err() != nil {
+			out.status, out.result = statusClientClosedRequest, "client-cancelled"
+			return out
+		}
 		// Distinguish a client-supplied oversized file from a generic
 		// upstream failure so the audit row and status code are honest.
 		if errors.Is(err, errFileTooLarge) {

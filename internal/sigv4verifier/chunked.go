@@ -143,6 +143,89 @@ func (c *chunkedReader) verify(data []byte, presented string) error {
 	return nil
 }
 
+// NewUnsignedChunkedReader returns an io.Reader that yields the decoded body
+// bytes of an aws-chunked STREAMING-UNSIGNED-PAYLOAD-TRAILER stream: bare
+// `<size-hex>\r\n` framed chunks with no per-chunk signatures, terminated by
+// a zero-size chunk followed by optional trailer lines (x-amz-checksum-*)
+// and a blank line. Trailers are consumed and discarded. Reads past the
+// terminator return io.EOF.
+func NewUnsignedChunkedReader(body io.Reader) io.Reader {
+	return &unsignedChunkedReader{br: bufio.NewReader(body)}
+}
+
+type unsignedChunkedReader struct {
+	br      *bufio.Reader
+	pending []byte
+	done    bool
+	err     error
+}
+
+func (c *unsignedChunkedReader) Read(p []byte) (int, error) {
+	if c.err != nil {
+		return 0, c.err
+	}
+	for len(c.pending) == 0 && !c.done {
+		if err := c.readNextChunk(); err != nil {
+			c.err = err
+			return 0, err
+		}
+	}
+	if c.done && len(c.pending) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, c.pending)
+	c.pending = c.pending[n:]
+	return n, nil
+}
+
+func (c *unsignedChunkedReader) readNextChunk() error {
+	header, err := c.br.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read chunk header: %w", err)
+	}
+	header = strings.TrimRight(header, "\r\n")
+	// Tolerate (and ignore) chunk extensions such as ";chunk-signature=".
+	if semi := strings.IndexByte(header, ';'); semi >= 0 {
+		header = header[:semi]
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(header), 16, 64)
+	if err != nil || size < 0 {
+		return &ChunkVerifyError{Reason: "chunk size not a non-negative hex integer"}
+	}
+
+	if size == 0 {
+		// Terminator: drain trailer lines up to the final blank line.
+		for {
+			line, err := c.br.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break // tolerate streams that omit the final CRLF
+				}
+				return fmt.Errorf("read trailer: %w", err)
+			}
+			if strings.TrimRight(line, "\r\n") == "" {
+				break
+			}
+		}
+		c.done = true
+		return nil
+	}
+
+	data := make([]byte, size)
+	if _, err := io.ReadFull(c.br, data); err != nil {
+		return fmt.Errorf("read chunk data: %w", err)
+	}
+	crlf := make([]byte, 2)
+	if _, err := io.ReadFull(c.br, crlf); err != nil {
+		return fmt.Errorf("read chunk terminator: %w", err)
+	}
+	if crlf[0] != '\r' || crlf[1] != '\n' {
+		return &ChunkVerifyError{Reason: "missing chunk CRLF terminator"}
+	}
+	c.pending = data
+	return nil
+}
+
 func parseChunkHeader(line string) (size int64, signature string, err error) {
 	// Format: "<size-hex>;chunk-signature=<hex>"
 	semi := strings.IndexByte(line, ';')

@@ -161,12 +161,10 @@ func (s *SQLiteLimitSource) fire() {
 // ---------------------------------------------------------------------------
 // KubernetesLimitSource
 
-// KubernetesLimitSource is the operator-side limit source. v1 ships with
-// stub reads (always missing) so behaviour is unchanged when the
-// `BucketClaim.spec.quota` CRD field doesn't yet exist. Once the operator
-// writes the limit into the consumer Secret data, this source's Reload
-// will populate the cache from the same informer the credential source
-// already runs.
+// KubernetesLimitSource is the operator-side limit source. The operator
+// stamps `BucketClaim.spec.quota` into the internal vc-<akid> Secret's
+// quota_soft_bytes/quota_hard_bytes, and the credential informer publishes
+// those values here on every Secret add/update.
 type KubernetesLimitSource struct {
 	mu     sync.RWMutex
 	cache  map[string]*Limit

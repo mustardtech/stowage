@@ -74,6 +74,30 @@ func PrepareOutboundHeaders(in http.Header) http.Header {
 	return out
 }
 
+// StripAwsChunkedEncoding removes the "aws-chunked" token from a request's
+// Content-Encoding header, dropping the header entirely when nothing else
+// remains. Called once the proxy has decoded the chunked framing — the
+// backend must not store aws-chunked as the object's content encoding.
+func StripAwsChunkedEncoding(h http.Header) {
+	ce := h.Get("Content-Encoding")
+	if ce == "" {
+		return
+	}
+	kept := make([]string, 0, 2)
+	for _, p := range strings.Split(ce, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.EqualFold(p, "aws-chunked") {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(kept) == 0 {
+		h.Del("Content-Encoding")
+		return
+	}
+	h.Set("Content-Encoding", strings.Join(kept, ","))
+}
+
 // BuildOutboundPath returns the outbound path-style URL path for a virtual
 // request. If the inbound request was virtual-hosted, we flatten to path-style.
 func BuildOutboundPath(realBucket, key string) string {
