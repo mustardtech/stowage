@@ -6,11 +6,10 @@
 [![Release](https://img.shields.io/github/v/release/stowage-dev/stowage?include_prereleases&sort=semver)](https://github.com/stowage-dev/stowage/releases/latest)
 [![Go reference](https://pkg.go.dev/badge/github.com/stowage-dev/stowage.svg)](https://pkg.go.dev/github.com/stowage-dev/stowage)
 
-**[stowage.dev](https://stowage.dev)
 
 A single Go binary that puts a web dashboard, an AWS-SigV4 S3 proxy, and an optional Kubernetes operator in front of any S3-compatible backend — MinIO, Garage, SeaweedFS, AWS S3, R2, B2, Wasabi. One pane of glass for the storage you already run, with audit, quotas, share links, and per-tenant credentials.
 
-Licensed [AGPL-3.0-or-later](./LICENSE) — no community edition, no enterprise tier. [Here's why](https://stowage.dev/docs/explanations/why-agpl).
+Licensed [AGPL-3.0-or-later](./LICENSE)
 
 ## Quickstart
 
