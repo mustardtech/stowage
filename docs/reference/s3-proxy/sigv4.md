@@ -16,9 +16,14 @@ Source:
 | Shape | How |
 |---|---|
 | Header-signed | `Authorization: AWS4-HMAC-SHA256 Credential=…, SignedHeaders=…, Signature=…` |
-| Query-signed (presigned URL) | All signature fields in query parameters: `X-Amz-Algorithm`, `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires`, `X-Amz-SignedHeaders`, `X-Amz-Signature`. |
+| Query-signed (presigned URL) | All signature fields in query parameters: `X-Amz-Algorithm`, `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires`, `X-Amz-SignedHeaders`, `X-Amz-Signature`. `X-Amz-Expires` is mandatory (1 s – 7 days), matching AWS. |
 | Chunked uploads | `Authorization` + `Transfer-Encoding: aws-chunked` + `X-Amz-Content-Sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD`. |
 | Unsigned payload | `X-Amz-Content-Sha256: UNSIGNED-PAYLOAD`. |
+
+Presigned requests always verify against `UNSIGNED-PAYLOAD`. A presigned
+upload sent with `Content-Encoding: aws-chunked` is detected via the
+header (the payload-hash sentinel can't reveal it) and its framing is
+decoded before forwarding, so the backend stores only payload bytes.
 
 ## Verification steps
 

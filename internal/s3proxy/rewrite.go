@@ -4,8 +4,11 @@
 package s3proxy
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -51,9 +54,31 @@ var allowedAmzPrefixes = map[string]struct{}{
 // User metadata prefix is preserved as a whole.
 const userMetaPrefix = "x-amz-meta-"
 
+// Flexible-checksum headers are preserved as a family: the checksum values
+// themselves (x-amz-checksum-crc32, -crc32c, -crc64nvme, -sha1, -sha256) plus
+// the multipart declarations x-amz-checksum-algorithm and x-amz-checksum-type.
+// The backend validates the value against the body it receives, which the
+// proxy forwards byte-identical, so passing them through is always safe.
+const checksumPrefix = "x-amz-checksum-"
+
+// sdkChecksumAlgoHeader announces that a checksum accompanies the request.
+// Forwarded only when a x-amz-checksum-* value header is actually present:
+// SDKs doing aws-chunked uploads carry the checksum in a body trailer, which
+// the proxy's chunk decoder strips — forwarding the announcement without the
+// value would make strict backends reject the request.
+const sdkChecksumAlgoHeader = "x-amz-sdk-checksum-algorithm"
+
 // PrepareOutboundHeaders returns a new http.Header suitable for an outbound
 // admin-signed request. Destination headers like Host are the caller's job.
 func PrepareOutboundHeaders(in http.Header) http.Header {
+	hasChecksumValue := false
+	for k := range in {
+		lk := strings.ToLower(k)
+		if strings.HasPrefix(lk, checksumPrefix) && lk != "x-amz-checksum-algorithm" && lk != "x-amz-checksum-type" {
+			hasChecksumValue = true
+			break
+		}
+	}
 	out := make(http.Header, len(in))
 	for k, vs := range in {
 		lk := strings.ToLower(k)
@@ -61,17 +86,35 @@ func PrepareOutboundHeaders(in http.Header) http.Header {
 			continue
 		}
 		if strings.HasPrefix(lk, "x-amz-") {
-			if strings.HasPrefix(lk, userMetaPrefix) {
-				out[k] = append(out[k], vs...)
-				continue
-			}
-			if _, ok := allowedAmzPrefixes[lk]; !ok {
-				continue
+			switch {
+			case strings.HasPrefix(lk, userMetaPrefix):
+			case strings.HasPrefix(lk, checksumPrefix):
+			case lk == sdkChecksumAlgoHeader:
+				if !hasChecksumValue {
+					continue
+				}
+			default:
+				if _, ok := allowedAmzPrefixes[lk]; !ok {
+					continue
+				}
 			}
 		}
 		out[k] = append(out[k], vs...)
 	}
 	return out
+}
+
+// HasAwsChunkedEncoding reports whether the request's Content-Encoding
+// carries the "aws-chunked" token. Needed for presigned uploads: their
+// signature covers UNSIGNED-PAYLOAD, so unlike header-signed streaming
+// requests the payload-hash sentinel never reveals the chunked framing.
+func HasAwsChunkedEncoding(h http.Header) bool {
+	for _, p := range strings.Split(h.Get("Content-Encoding"), ",") {
+		if strings.EqualFold(strings.TrimSpace(p), "aws-chunked") {
+			return true
+		}
+	}
+	return false
 }
 
 // StripAwsChunkedEncoding removes the "aws-chunked" token from a request's
@@ -181,6 +224,48 @@ func isAWSUnreserved(c byte) bool {
 	}
 	return false
 }
+
+// maxRewritableXMLBody bounds how much of an upstream XML response the proxy
+// will buffer to rewrite. CompleteMultipartUploadResult is a handful of short
+// elements; anything larger than this is not the document we expect and is
+// passed through untouched.
+const maxRewritableXMLBody = 1 << 20
+
+// replayedBody re-attaches the original response body's Closer to a
+// replacement reader so the upstream connection is still released properly.
+type replayedBody struct {
+	io.Reader
+	io.Closer
+}
+
+// rewriteCompleteMultipartLocation replaces the <Location> element of a
+// CompleteMultipartUploadResult with the object's proxy-facing URL. The
+// upstream fills Location with its own endpoint and real bucket path, which
+// leaks the backend address and is unreachable for proxy clients. Malformed,
+// oversized, or unexpected bodies are forwarded unmodified.
+func rewriteCompleteMultipartLocation(resp *http.Response, r *http.Request, route RouteInfo, publicHostname string) {
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxRewritableXMLBody+1))
+	if err != nil || len(buf) > maxRewritableXMLBody {
+		// Forward what was read plus the remainder; the declared
+		// Content-Length still matches the reassembled stream.
+		resp.Body = replayedBody{io.MultiReader(bytes.NewReader(buf), resp.Body), resp.Body}
+		return
+	}
+	open := bytes.Index(buf, []byte("<Location>"))
+	close_ := bytes.Index(buf, []byte("</Location>"))
+	if open < 0 || close_ < open {
+		resp.Body = replayedBody{bytes.NewReader(buf), resp.Body}
+		return
+	}
+	loc := xmlEscaper.Replace(inboundObjectLocation(r, route, route.Key, publicHostname))
+	rewritten := append(buf[:open+len("<Location>"):open+len("<Location>")], loc...)
+	rewritten = append(rewritten, buf[close_:]...)
+	resp.Body = replayedBody{bytes.NewReader(rewritten), resp.Body}
+	resp.ContentLength = int64(len(rewritten))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
+}
+
+var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 // presignedQueryParams are the SigV4 query-string auth parameters. They carry
 // the client's virtual-credential signature, which is meaningless to the

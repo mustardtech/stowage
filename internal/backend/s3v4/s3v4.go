@@ -43,9 +43,8 @@ type Config struct {
 }
 
 type Driver struct {
-	cfg       Config
-	client    *s3.Client
-	presigner *s3.PresignClient
+	cfg    Config
+	client *s3.Client
 }
 
 var _ backend.Backend = (*Driver)(nil)
@@ -117,9 +116,8 @@ func New(ctx context.Context, c Config) (*Driver, error) {
 	})
 
 	return &Driver{
-		cfg:       c,
-		client:    client,
-		presigner: s3.NewPresignClient(client),
+		cfg:    c,
+		client: client,
 	}, nil
 }
 
@@ -801,31 +799,6 @@ func (d *Driver) ListMultipartUploads(ctx context.Context, bucket, prefix string
 		res = append(res, mu)
 	}
 	return res, nil
-}
-
-// ---- Presigned URLs -----------------------------------------------------
-
-func (d *Driver) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
-	req, err := d.presigner.PresignGetObject(ctx,
-		&s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)},
-		s3.WithPresignExpires(ttl),
-	)
-	if err != nil {
-		return "", err
-	}
-	return req.URL, nil
-}
-
-func (d *Driver) PresignPut(ctx context.Context, bucket, key string, ttl time.Duration, contentType string) (string, error) {
-	in := &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}
-	if contentType != "" {
-		in.ContentType = aws.String(contentType)
-	}
-	req, err := d.presigner.PresignPutObject(ctx, in, s3.WithPresignExpires(ttl))
-	if err != nil {
-		return "", err
-	}
-	return req.URL, nil
 }
 
 // Admin returns nil — the generic s3v4 driver does not expose backend-native

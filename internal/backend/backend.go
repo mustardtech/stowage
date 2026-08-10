@@ -10,7 +10,6 @@ package backend
 import (
 	"context"
 	"io"
-	"time"
 )
 
 // Backend is the per-target S3-compatible driver.
@@ -68,10 +67,6 @@ type Backend interface {
 	CompleteMultipart(ctx context.Context, bucket, key, uploadID string, parts []CompletedPart) (ObjectInfo, error)
 	AbortMultipart(ctx context.Context, bucket, key, uploadID string) error
 	ListMultipartUploads(ctx context.Context, bucket, prefix string) ([]MultipartUpload, error)
-
-	// Presigned URLs
-	PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
-	PresignPut(ctx context.Context, bucket, key string, ttl time.Duration, contentType string) (string, error)
 
 	// Optional admin interface. May return nil.
 	Admin() AdminBackend

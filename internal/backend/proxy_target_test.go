@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/url"
 	"testing"
-	"time"
 )
 
 // stubBackend is a minimal Backend that does *not* implement
@@ -90,12 +89,6 @@ func (s *stubBackend) AbortMultipart(context.Context, string, string, string) er
 }
 func (s *stubBackend) ListMultipartUploads(context.Context, string, string) ([]MultipartUpload, error) {
 	return nil, nil
-}
-func (s *stubBackend) PresignGet(context.Context, string, string, time.Duration) (string, error) {
-	return "", nil
-}
-func (s *stubBackend) PresignPut(context.Context, string, string, time.Duration, string) (string, error) {
-	return "", nil
 }
 func (s *stubBackend) Admin() AdminBackend { return nil }
 

@@ -351,7 +351,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, reqID string) ser
 	// X-Amz-Decoded-Content-Length. The signed variant additionally
 	// verifies per-chunk signatures; the unsigned-trailer variant (the
 	// default for SDKs with flexible checksums) is decode-only.
-	if res.PayloadHash == sigv4verifier.StreamingPayload || res.PayloadHash == sigv4verifier.StreamingUnsignedTrailer {
+	//
+	// Presigned requests always verify against UNSIGNED-PAYLOAD, so the
+	// payload-hash sentinel can't reveal chunked framing — Content-Encoding
+	// is the only signal. Without this branch the framing would be forwarded
+	// verbatim and stored as object bytes.
+	presignedChunked := res.Presigned && HasAwsChunkedEncoding(r.Header)
+	if res.PayloadHash == sigv4verifier.StreamingPayload || res.PayloadHash == sigv4verifier.StreamingUnsignedTrailer || presignedChunked {
 		decoded, err := strconv.ParseInt(r.Header.Get("X-Amz-Decoded-Content-Length"), 10, 64)
 		if err != nil {
 			writeS3Error(w, http.StatusBadRequest, "InvalidRequest", "missing or bad X-Amz-Decoded-Content-Length", r.URL.Path, reqID)
@@ -461,6 +467,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, reqID string) ser
 		return out
 	}
 	defer resp.Body.Close()
+
+	// The upstream's CompleteMultipartUploadResult carries its own endpoint
+	// in <Location>; swap in the proxy-facing object URL before streaming.
+	if out.operation == "CompleteMultipartUpload" && resp.StatusCode == http.StatusOK {
+		rewriteCompleteMultipartLocation(resp, r, route, s.cfg.PublicHostname)
+	}
 
 	s.streamResponse(w, resp, outReq, out.operation, reqID)
 

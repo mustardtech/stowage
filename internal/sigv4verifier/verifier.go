@@ -278,7 +278,11 @@ func (v *Verifier) verifyPresigned(r *http.Request, q url.Values) (*Result, erro
 	expiresStr := q.Get("X-Amz-Expires")
 	presented := strings.ToLower(q.Get("X-Amz-Signature"))
 
-	if credential == "" || signedHeadersRaw == "" || dateStr == "" || presented == "" {
+	// X-Amz-Expires is mandatory, matching AWS: without it a presigned URL
+	// would be bounded only by the clock-skew window, and its absence from
+	// the signed query usually means the URL was hand-assembled rather than
+	// produced by a real SigV4 presigner.
+	if credential == "" || signedHeadersRaw == "" || dateStr == "" || presented == "" || expiresStr == "" {
 		return nil, ErrMalformedAuth
 	}
 
@@ -295,16 +299,13 @@ func (v *Verifier) verifyPresigned(r *http.Request, q url.Values) (*Result, erro
 	if abs(v.now().Sub(reqTime)) > v.skew() {
 		return nil, ErrRequestTimeSkewed
 	}
-	var expires time.Duration
-	if expiresStr != "" {
-		n, err := strconv.Atoi(expiresStr)
-		if err != nil || n < 0 || n > 7*24*3600 {
-			return nil, ErrMalformedAuth
-		}
-		expires = time.Duration(n) * time.Second
-		if v.now().After(reqTime.Add(expires)) {
-			return nil, ErrRequestExpired
-		}
+	n, err := strconv.Atoi(expiresStr)
+	if err != nil || n < 1 || n > 7*24*3600 {
+		return nil, ErrMalformedAuth
+	}
+	expires := time.Duration(n) * time.Second
+	if v.now().After(reqTime.Add(expires)) {
+		return nil, ErrRequestExpired
 	}
 
 	secret, ok := v.Resolver.Resolve(akid)

@@ -70,6 +70,30 @@ dashboard's `/api/backends/{bid}/buckets` handlers, not the proxy.
 upstream is never called. The XML response carries one `<Bucket>`
 entry per scope.
 
+## Presigned URLs
+
+Every recognised operation — including the whole multipart lifecycle
+(`CreateMultipartUpload`, `UploadPart`, `ListParts`,
+`CompleteMultipartUpload`, `AbortMultipart`) — also works with SigV4
+query-string signing. There is no server-side presign endpoint: presign
+locally against the proxy hostname with your virtual credential, exactly
+as with AWS (`aws s3 presign`, every SDK's presigner). Application query
+parameters like `uploadId` and `partNumber` are part of the signed query;
+the proxy strips only the `X-Amz-*` auth parameters before re-signing
+the outbound request. `X-Amz-Expires` is required (1 s – 7 days), as on
+AWS.
+
+For browser clients, the bucket's CORS rules must allow the methods used
+(`PUT`/`POST`/`DELETE` for multipart) and expose `ETag` so the script
+can collect per-part ETags for the complete call.
+
+The `<Location>` element in `CompleteMultipartUploadResult` is rewritten
+to the proxy-facing object URL — the upstream endpoint is never exposed.
+
+Flexible-checksum headers (`x-amz-checksum-*`,
+`x-amz-sdk-checksum-algorithm`) are forwarded, so SDK default checksums
+work across create/part/complete.
+
 ## CopyObject
 
 `PUT /<dst-bucket>/<dst-key>` with `x-amz-copy-source` headed at the

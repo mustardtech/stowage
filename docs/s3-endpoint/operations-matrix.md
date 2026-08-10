@@ -30,6 +30,11 @@ These are recognised, scope-checked, and forwarded:
 | `ListMultipartUploads` | `GET /<bucket>?uploads` | |
 | `ListParts` | `GET /<bucket>/<key>?uploadId=<id>` | |
 
+All forwarded operations accept both header signing and presigned
+(query-signed) URLs — including the full multipart lifecycle. Presign
+locally against the proxy hostname with your virtual credential, the
+same way you would against AWS; there is no server-side presign API.
+
 ## Synthesised by the proxy
 
 `ListBuckets` (`GET /`) is built from your credential's bucket scope.

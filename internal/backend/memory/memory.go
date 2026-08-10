@@ -549,14 +549,8 @@ func (b *Backend) ListMultipartUploads(_ context.Context, bucket, prefix string)
 	return out, nil
 }
 
-// ---- Presign / Admin — not meaningful for memory backend ----------------
+// ---- Admin — not meaningful for memory backend --------------------------
 
-func (b *Backend) PresignGet(_ context.Context, _, _ string, _ time.Duration) (string, error) {
-	return "", errors.New("memory: presign not supported")
-}
-func (b *Backend) PresignPut(_ context.Context, _, _ string, _ time.Duration, _ string) (string, error) {
-	return "", errors.New("memory: presign not supported")
-}
 func (b *Backend) Admin() backend.AdminBackend { return nil }
 
 // ---- helpers ------------------------------------------------------------

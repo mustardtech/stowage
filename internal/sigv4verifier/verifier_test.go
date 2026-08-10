@@ -120,25 +120,70 @@ func TestVerify_MissingAuth(t *testing.T) {
 	require.ErrorIs(t, err, ErrMissingAuth)
 }
 
-func TestVerify_Presigned(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/b/k", nil)
-	req.Host = "example.com"
+// presignURL builds a presigned URL for the test credential the way an AWS
+// SDK would: X-Amz-Expires participates in the signed query.
+func presignURL(t *testing.T, method, rawURL string, expires string) string {
+	t.Helper()
+	req := httptest.NewRequest(method, rawURL, nil)
+	req.Host = req.URL.Host
+	q := req.URL.Query()
+	if expires != "" {
+		q.Set("X-Amz-Expires", expires)
+	}
+	req.URL.RawQuery = q.Encode()
 	signer := v4.NewSigner()
 	uri, _, err := signer.PresignHTTP(context.Background(),
 		aws.Credentials{AccessKeyID: testAKID, SecretAccessKey: testSecret},
 		req, UnsignedPayload, testSvc, testRegion, time.Now().UTC(),
 	)
 	require.NoError(t, err)
+	return uri
+}
 
-	u, err := url.Parse(uri)
-	require.NoError(t, err)
-	presReq := httptest.NewRequest(http.MethodGet, u.String(), nil)
+func TestVerify_Presigned(t *testing.T) {
+	uri := presignURL(t, http.MethodGet, "http://example.com/b/k", "300")
+	presReq := httptest.NewRequest(http.MethodGet, uri, nil)
 	presReq.Host = "example.com"
 
 	v := &Verifier{Resolver: newResolver()}
 	res, err := v.Verify(presReq)
 	require.NoError(t, err)
 	require.True(t, res.Presigned)
+	require.Equal(t, 300*time.Second, res.Expires)
+}
+
+func TestVerify_Presigned_MissingExpires(t *testing.T) {
+	uri := presignURL(t, http.MethodGet, "http://example.com/b/k", "")
+	presReq := httptest.NewRequest(http.MethodGet, uri, nil)
+	presReq.Host = "example.com"
+
+	v := &Verifier{Resolver: newResolver()}
+	_, err := v.Verify(presReq)
+	require.ErrorIs(t, err, ErrMalformedAuth)
+}
+
+func TestVerify_Presigned_MultipartQuery(t *testing.T) {
+	// UploadPart shape: uploadId + partNumber ride in the signed query.
+	uri := presignURL(t, http.MethodPut,
+		"http://example.com/b/k?partNumber=3&uploadId=abc123", "300")
+	presReq := httptest.NewRequest(http.MethodPut, uri, nil)
+	presReq.Host = "example.com"
+
+	v := &Verifier{Resolver: newResolver()}
+	res, err := v.Verify(presReq)
+	require.NoError(t, err)
+	require.True(t, res.Presigned)
+
+	// Tampering with uploadId after signing must break the signature.
+	u, err := url.Parse(uri)
+	require.NoError(t, err)
+	q := u.Query()
+	q.Set("uploadId", "evil")
+	u.RawQuery = q.Encode()
+	tampered := httptest.NewRequest(http.MethodPut, u.String(), nil)
+	tampered.Host = "example.com"
+	_, err = v.Verify(tampered)
+	require.ErrorIs(t, err, ErrSignatureMismatch)
 }
 
 func TestVerify_Presigned_Expired(t *testing.T) {
