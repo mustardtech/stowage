@@ -19,6 +19,13 @@ image:
   # as imagePullSecrets on every Pod. The chart does not create these.
   pullSecrets: []
 
+# Container resources. The proxy buffers in-flight upload bytes in memory
+# (multipart parts included), so size the memory limit to the largest
+# concurrent upload burst you expect, not to idle usage.
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits:   {cpu: 500m, memory: 1Gi}
+
 # Persistent volume that backs the SQLite store. Stowage runs as a single
 # replica (SQLite + in-process limiter), so RWO is sufficient.
 storage:
