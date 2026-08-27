@@ -54,7 +54,18 @@ type Service struct {
 
 	mu    sync.RWMutex
 	cache map[string]*Usage
+	// failedScans records, per bucket, when an inline (upload-path) scan
+	// last failed so CheckUpload doesn't re-list a bucket that cannot be
+	// listed within the inline cap on every single upload.
+	failedScans map[string]time.Time
 }
+
+// syncScanTimeout caps the inline scan run from CheckUpload; syncScanBackoff
+// is how long a bucket is left alone after that scan fails.
+const (
+	syncScanTimeout = 10 * time.Second
+	syncScanBackoff = 10 * time.Minute
+)
 
 // ReloadLimits rebuilds the in-memory limit cache from any reloadable
 // underlying source. The admin CRUD handlers call this after upsert /
@@ -89,6 +100,7 @@ func New(limits LimitSource, store *sqlite.Store, registry *backend.Registry, lo
 		Logger:       logger,
 		scanPageSize: 1000,
 		cache:        make(map[string]*Usage),
+		failedScans:  make(map[string]time.Time),
 	}
 }
 
@@ -134,16 +146,23 @@ func (s *Service) CheckUpload(ctx context.Context, backendID, bucket string, add
 	if usage == nil {
 		// First scan hasn't run yet. Best-effort scan synchronously so we
 		// don't wave through writes for the first 30 minutes after boot.
-		// Cap the scan time so a slow backend can't make uploads hang.
-		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// Cap the scan time so a slow backend can't make uploads hang, and
+		// back off after a failure: a bucket too big to list within the cap
+		// would otherwise be re-listed on every upload, which is a full
+		// bucket walk against the backend per write.
+		if s.inSyncScanBackoff(backendID, bucket) {
+			return nil
+		}
+		scanCtx, cancel := context.WithTimeout(ctx, syncScanTimeout)
 		defer cancel()
 		if u, scanErr := s.Scan(scanCtx, backendID, bucket); scanErr == nil {
 			usage = u
 		} else {
 			// Scan failed; let the upload through rather than hard-fail
 			// every write. The scheduled scanner will catch up later.
+			s.markSyncScanFailed(backendID, bucket)
 			s.Logger.Warn("quota: synchronous scan failed, allowing upload",
-				"backend", backendID, "bucket", bucket, "err", scanErr.Error())
+				"backend", backendID, "bucket", bucket, "backoff", syncScanBackoff.String(), "err", scanErr.Error())
 			return nil
 		}
 	}
@@ -166,6 +185,19 @@ func (s *Service) Recorded(backendID, bucket string, addBytes int64) {
 	}
 	u.Bytes += addBytes
 	u.ObjectCount++
+}
+
+func (s *Service) inSyncScanBackoff(backendID, bucket string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.failedScans[cacheKey(backendID, bucket)]
+	return ok && time.Since(t) < syncScanBackoff
+}
+
+func (s *Service) markSyncScanFailed(backendID, bucket string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failedScans[cacheKey(backendID, bucket)] = time.Now()
 }
 
 // Scan paginates through the backend's bucket and computes the live size
@@ -201,6 +233,7 @@ func (s *Service) Scan(ctx context.Context, backendID, bucket string) (*Usage, e
 	usage := &Usage{Bytes: bytes, ObjectCount: count, ComputedAt: time.Now().UTC()}
 	s.mu.Lock()
 	s.cache[cacheKey(backendID, bucket)] = usage
+	delete(s.failedScans, cacheKey(backendID, bucket))
 	s.mu.Unlock()
 	return usage, nil
 }
