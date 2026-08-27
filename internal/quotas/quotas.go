@@ -262,6 +262,29 @@ func (s *Service) Scan(ctx context.Context, backendID, bucket string) (*Usage, e
 	return usage, nil
 }
 
+// startupBackendWait bounds how long Run waits for the first backend to be
+// registered before the initial sweep.
+const startupBackendWait = 60 * time.Second
+
+// waitForBackends blocks until at least one backend is registered, the
+// timeout elapses, or ctx is done. Returns true if a backend is present.
+func (s *Service) waitForBackends(ctx context.Context, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if s.Backends != nil && len(s.Backends.List()) > 0 {
+			return true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
 // ScanAll runs Scan over every limit-configured bucket and logs failures.
 // Used by the scheduler and as the implementation of an admin "recompute
 // everything" operation. Iterates the merged limit source so K8s-only and
@@ -272,6 +295,7 @@ func (s *Service) ScanAll(ctx context.Context) {
 			return
 		}
 		if _, err := s.Scan(ctx, k.BackendID, k.Bucket); err != nil {
+			s.markSyncScanFailed(k.BackendID, k.Bucket)
 			s.Logger.Warn("quota scanner: scan failed",
 				"backend", k.BackendID, "bucket", k.Bucket, "err", err.Error())
 		}
@@ -366,7 +390,13 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	}
 	// Kick once at startup so the cache populates without waiting a full
 	// interval — important for hard-quota enforcement on uploads that
-	// arrive shortly after boot.
+	// arrive shortly after boot. The backend registry is filled
+	// asynchronously (Kubernetes source), so wait for it first or every
+	// scan fails with "backend not registered" and the cache stays empty
+	// until the next interval.
+	if !s.waitForBackends(ctx, startupBackendWait) {
+		s.Logger.Warn("quota scanner: no backends registered before startup scan; will retry on the next interval")
+	}
 	s.ScanAll(ctx)
 
 	t := time.NewTicker(interval)
