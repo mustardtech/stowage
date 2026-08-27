@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/backend"
+	"github.com/stowage-dev/stowage/internal/backend/memory"
 )
 
 // A limit for a backend that isn't registered makes Scan fail fast, which
@@ -58,5 +59,19 @@ func TestInlineScanRunsOnceAtATime(t *testing.T) {
 	s.endInlineScan("missing", "b")
 	if !s.beginInlineScan("missing", "b") {
 		t.Fatal("claim should succeed again after release")
+	}
+}
+
+func TestWaitForBackendsReturnsOnceRegistered(t *testing.T) {
+	reg := backend.NewRegistry()
+	s := New(oneLimit{LimitKey{BackendID: "x", Bucket: "b"}}, nil, reg, slog.Default())
+	if s.waitForBackends(context.Background(), 300*time.Millisecond) {
+		t.Fatal("expected false with an empty registry")
+	}
+	if err := reg.Register(memory.New("mem", "Memory")); err != nil {
+		t.Fatal(err)
+	}
+	if !s.waitForBackends(context.Background(), time.Second) {
+		t.Fatal("expected true once a backend is registered")
 	}
 }
