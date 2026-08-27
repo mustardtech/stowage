@@ -702,11 +702,29 @@ const maxReplayableBody = 1 << 20
 // exists so logs, metrics, and audit don't misreport a backend failure.
 const statusClientClosedRequest = 499
 
-// doUpstream performs the outbound round trip, retrying once on a fresh
-// connection when the pooled keep-alive turned out to be dead and the body
-// can be replayed (or there is none). Go's transport only self-retries
+// upstreamIdempotentAttempts bounds retries of idempotent (bodyless)
+// operations against a backend that answers 502/503/504 or drops the
+// connection. Writes are never retried this way.
+const upstreamIdempotentAttempts = 3
+
+func isIdempotentMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead || m == http.MethodDelete
+}
+
+func isRetryableStatus(code int) bool {
+	return code == http.StatusBadGateway || code == http.StatusServiceUnavailable || code == http.StatusGatewayTimeout
+}
+
+// doUpstream performs the outbound round trip. Idempotent methods are
+// retried up to upstreamIdempotentAttempts times with exponential backoff
+// on transport errors and 502/503/504. Everything else is retried once on a
+// fresh connection when the pooled keep-alive turned out to be dead and the
+// body can be replayed (or there is none). Go's transport only self-retries
 // idempotent methods, which excludes every S3 write.
 func (s *Server) doUpstream(outReq *http.Request) (*http.Response, error) {
+	if isIdempotentMethod(outReq.Method) && outReq.Body == nil {
+		return s.doUpstreamIdempotent(outReq)
+	}
 	resp, err := s.transport.RoundTrip(outReq)
 	if err == nil || outReq.Context().Err() != nil || !isStaleConnErr(err) {
 		return resp, err
@@ -723,6 +741,38 @@ func (s *Server) doUpstream(outReq *http.Request) (*http.Response, error) {
 		retry.Body = body
 	}
 	return s.transport.RoundTrip(retry)
+}
+
+func (s *Server) doUpstreamIdempotent(outReq *http.Request) (*http.Response, error) {
+	var (
+		resp *http.Response
+		err  error
+	)
+	for attempt := 0; attempt < upstreamIdempotentAttempts; attempt++ {
+		if attempt > 0 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			delay := time.Duration(100<<uint(attempt-1))*time.Millisecond +
+				time.Duration(rand.IntN(100))*time.Millisecond
+			select {
+			case <-outReq.Context().Done():
+				return nil, outReq.Context().Err()
+			case <-time.After(delay):
+			}
+		}
+		resp, err = s.transport.RoundTrip(outReq.Clone(outReq.Context()))
+		if err != nil {
+			if outReq.Context().Err() != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !isRetryableStatus(resp.StatusCode) {
+			return resp, nil
+		}
+	}
+	return resp, err
 }
 
 // isStaleConnErr reports whether err looks like the reused keep-alive
