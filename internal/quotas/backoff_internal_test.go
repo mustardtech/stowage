@@ -46,3 +46,17 @@ func TestCheckUploadBacksOffAfterFailedSyncScan(t *testing.T) {
 		t.Fatal("expected backoff to have expired")
 	}
 }
+
+func TestInlineScanRunsOnceAtATime(t *testing.T) {
+	s := New(oneLimit{LimitKey{BackendID: "missing", Bucket: "b"}}, nil, backend.NewRegistry(), slog.Default())
+	if !s.beginInlineScan("missing", "b") {
+		t.Fatal("first claim should succeed")
+	}
+	if s.beginInlineScan("missing", "b") {
+		t.Fatal("second claim should be refused while the first is running")
+	}
+	s.endInlineScan("missing", "b")
+	if !s.beginInlineScan("missing", "b") {
+		t.Fatal("claim should succeed again after release")
+	}
+}

@@ -58,6 +58,9 @@ type Service struct {
 	// last failed so CheckUpload doesn't re-list a bucket that cannot be
 	// listed within the inline cap on every single upload.
 	failedScans map[string]time.Time
+	// inlineScans marks buckets with an inline scan currently running so
+	// concurrent uploads don't each start their own.
+	inlineScans map[string]bool
 }
 
 // syncScanTimeout caps the inline scan run from CheckUpload; syncScanBackoff
@@ -101,6 +104,7 @@ func New(limits LimitSource, store *sqlite.Store, registry *backend.Registry, lo
 		scanPageSize: 1000,
 		cache:        make(map[string]*Usage),
 		failedScans:  make(map[string]time.Time),
+		inlineScans:  make(map[string]bool),
 	}
 }
 
@@ -150,9 +154,10 @@ func (s *Service) CheckUpload(ctx context.Context, backendID, bucket string, add
 		// back off after a failure: a bucket too big to list within the cap
 		// would otherwise be re-listed on every upload, which is a full
 		// bucket walk against the backend per write.
-		if s.inSyncScanBackoff(backendID, bucket) {
+		if s.inSyncScanBackoff(backendID, bucket) || !s.beginInlineScan(backendID, bucket) {
 			return nil
 		}
+		defer s.endInlineScan(backendID, bucket)
 		scanCtx, cancel := context.WithTimeout(ctx, syncScanTimeout)
 		defer cancel()
 		if u, scanErr := s.Scan(scanCtx, backendID, bucket); scanErr == nil {
@@ -192,6 +197,25 @@ func (s *Service) inSyncScanBackoff(backendID, bucket string) bool {
 	defer s.mu.RUnlock()
 	t, ok := s.failedScans[cacheKey(backendID, bucket)]
 	return ok && time.Since(t) < syncScanBackoff
+}
+
+// beginInlineScan claims the inline-scan slot for a bucket; false means
+// another upload is already scanning it.
+func (s *Service) beginInlineScan(backendID, bucket string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := cacheKey(backendID, bucket)
+	if s.inlineScans[k] {
+		return false
+	}
+	s.inlineScans[k] = true
+	return true
+}
+
+func (s *Service) endInlineScan(backendID, bucket string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inlineScans, cacheKey(backendID, bucket))
 }
 
 func (s *Service) markSyncScanFailed(backendID, bucket string) {
