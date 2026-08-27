@@ -304,10 +304,38 @@ func (s *Service) ScanAll(ctx context.Context) {
 
 // BucketUsage is one row of the dashboard's "top buckets" view.
 type BucketUsage struct {
+	BackendID  string
+	Bucket     string
+	Bytes      int64
+	Objects    int64
+	ComputedAt time.Time
+}
+
+// UnscannedBucket is a quota-configured bucket whose last scan failed and
+// which therefore has no usage row.
+type UnscannedBucket struct {
 	BackendID string
 	Bucket    string
-	Bytes     int64
-	Objects   int64
+	FailedAt  time.Time
+}
+
+// Unscanned lists buckets with a recorded scan failure and no cached usage,
+// so the dashboard can show them as stale instead of silently omitting them.
+func (s *Service) Unscanned() []UnscannedBucket {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]UnscannedBucket, 0, len(s.failedScans))
+	for k, t := range s.failedScans {
+		if _, ok := s.cache[k]; ok {
+			continue
+		}
+		i := indexOfSlash(k)
+		if i < 0 {
+			continue
+		}
+		out = append(out, UnscannedBucket{BackendID: k[:i], Bucket: k[i+1:], FailedAt: t})
+	}
+	return out
 }
 
 // BackendTotal is one row of the dashboard's per-backend storage card.
@@ -331,10 +359,11 @@ func (s *Service) TopBuckets(n int) []BucketUsage {
 			continue
 		}
 		all = append(all, BucketUsage{
-			BackendID: k[:i],
-			Bucket:    k[i+1:],
-			Bytes:     u.Bytes,
-			Objects:   u.ObjectCount,
+			BackendID:  k[:i],
+			Bucket:     k[i+1:],
+			Bytes:      u.Bytes,
+			Objects:    u.ObjectCount,
+			ComputedAt: u.ComputedAt,
 		})
 	}
 	// Insertion sort is fine — caches typically hold at most a few hundred

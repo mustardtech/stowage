@@ -574,6 +574,13 @@ export interface DashboardTopBucket {
 	bucket: string;
 	bytes: number;
 	objects: number;
+	computed_at?: string;
+}
+
+export interface DashboardUnscannedBucket {
+	backend_id: string;
+	bucket: string;
+	failed_at: string;
 }
 
 export interface AdminDashboard {
@@ -581,6 +588,7 @@ export interface AdminDashboard {
 	storage: {
 		by_backend: DashboardBackendStorage[];
 		top_buckets: DashboardTopBucket[];
+		unscanned?: DashboardUnscannedBucket[];
 		cache_note?: string;
 	};
 }

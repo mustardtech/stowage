@@ -212,6 +212,20 @@
 					<td class="px-3 text-right font-mono">{bytes(r.bytes)}</td>
 				{/snippet}
 			</DataTable>
+			{#if (d.storage.unscanned ?? []).length > 0}
+				<p class="m-0 mt-3 mb-1 text-[11.5px] text-stw-fg-soft">
+					Not scanned — last attempt failed, usage unknown ({(d.storage.unscanned ?? []).length}):
+				</p>
+				<ul class="m-0 list-none p-0 font-mono text-[11.5px]">
+					{#each d.storage.unscanned ?? [] as u (u.backend_id + '/' + u.bucket)}
+						<li class="flex gap-3 py-0.5">
+							<span>{u.backend_id}</span>
+							<span>{u.bucket}</span>
+							<span class="text-stw-fg-soft">{new Date(u.failed_at).toLocaleTimeString()}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</SectionCard>
 
 		<SectionCard title="Recent errors">
