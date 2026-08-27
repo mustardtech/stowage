@@ -77,6 +77,11 @@ func (c *chunkedReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// maxChunkSize bounds a single aws-chunked chunk. The SDKs use 64 KiB–1 MiB
+// chunks; the cap only exists so a bad or hostile header can't force an
+// arbitrary allocation.
+const maxChunkSize = 64 << 20
+
 // readNextChunk parses and verifies one chunk. On a zero-size chunk (the
 // stream terminator) it marks the reader done.
 func (c *chunkedReader) readNextChunk() error {
@@ -90,6 +95,9 @@ func (c *chunkedReader) readNextChunk() error {
 		return err
 	}
 
+	if size > maxChunkSize {
+		return fmt.Errorf("chunk size %d exceeds limit %d", size, maxChunkSize)
+	}
 	var data []byte
 	if size > 0 {
 		data = make([]byte, size)
@@ -211,6 +219,9 @@ func (c *unsignedChunkedReader) readNextChunk() error {
 		return nil
 	}
 
+	if size > maxChunkSize {
+		return fmt.Errorf("chunk size %d exceeds limit %d", size, maxChunkSize)
+	}
 	data := make([]byte, size)
 	if _, err := io.ReadFull(c.br, data); err != nil {
 		return fmt.Errorf("read chunk data: %w", err)
