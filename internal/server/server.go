@@ -378,6 +378,7 @@ func (s *Server) buildS3Proxy(
 		Backends:             resolver,
 		Limiter:              s3proxy.NewLimiter(cfg.GlobalRPS, cfg.PerKeyRPS),
 		IPLimiter:            s3proxy.NewIPLimiter(cfg.AnonymousRPS),
+		Concurrency:          s3proxy.NewConcurrencyLimiter(cfg.MaxInflight, cfg.PerKeyInflight, cfg.InflightWait),
 		Metrics:              s3proxy.NewMetrics(mtx.Prom.Registry),
 		Log:                  proxyLog,
 		HostSuffixes:         cfg.HostSuffixes,

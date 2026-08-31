@@ -120,6 +120,19 @@ type S3ProxyConfig struct {
 	// Both are applied additively (a request must pass global *and* per-key).
 	GlobalRPS float64 `yaml:"global_rps"`
 	PerKeyRPS float64 `yaml:"per_key_rps"`
+	// MaxInflight caps concurrent in-flight requests across the whole
+	// proxy; PerKeyInflight caps them per access key (per client IP for
+	// anonymous requests). Every in-flight request can hold up to 1MiB
+	// of buffered body, so MaxInflight bounds proxy memory when a
+	// backend stalls, while PerKeyInflight keeps one stalled-out client
+	// from consuming the global allowance. Per-key is acquired first so
+	// an over-limit key queues on its own slice, never on global slots.
+	// 0 = unlimited. InflightWait is how long an over-limit request
+	// waits for a slot before receiving 503 SlowDown; 0 waits until the
+	// client gives up.
+	MaxInflight    int           `yaml:"max_inflight"`
+	PerKeyInflight int           `yaml:"per_key_inflight"`
+	InflightWait   time.Duration `yaml:"inflight_wait"`
 	// AnonymousEnabled is the cluster-wide kill switch for unauthenticated
 	// reads. When false, the anonymous fast-path is never entered, even
 	// for buckets with an active s3_anonymous_bindings row.
@@ -322,6 +335,12 @@ func Defaults() Config {
 		S3Proxy: S3ProxyConfig{
 			Listen:       ":8090",
 			AnonymousRPS: 20,
+			// 512 × 1MiB replay buffers ≈ 512MiB worst-case body memory;
+			// 64 per key lets a client stalled at 60s backend latency
+			// hold at most 64MiB while everyone else keeps their share.
+			MaxInflight:    512,
+			PerKeyInflight: 64,
+			InflightWait:   5 * time.Second,
 			Kubernetes: S3ProxyKubernetes{
 				Namespace: "stowage-system",
 			},
