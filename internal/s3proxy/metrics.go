@@ -12,17 +12,18 @@ import (
 // metrics are registered in the namespace `stowage_s3` so they sit
 // alongside stowage's existing dashboard metrics in a single registry.
 type Metrics struct {
-	Requests          *prometheus.CounterVec
-	Duration          *prometheus.HistogramVec
-	AuthFailures      *prometheus.CounterVec
-	ScopeViolations   prometheus.Counter
-	BytesIn           *prometheus.CounterVec
-	BytesOut          *prometheus.CounterVec
-	Upstream          *prometheus.HistogramVec
-	CacheSize         prometheus.Gauge
-	Inflight          prometheus.Gauge
-	AnonymousRejects  *prometheus.CounterVec
-	AnonymousRequests *prometheus.CounterVec
+	Requests           *prometheus.CounterVec
+	Duration           *prometheus.HistogramVec
+	AuthFailures       *prometheus.CounterVec
+	ScopeViolations    prometheus.Counter
+	BytesIn            *prometheus.CounterVec
+	BytesOut           *prometheus.CounterVec
+	Upstream           *prometheus.HistogramVec
+	CacheSize          prometheus.Gauge
+	Inflight           prometheus.Gauge
+	AnonymousRejects   *prometheus.CounterVec
+	AnonymousRequests  *prometheus.CounterVec
+	ConcurrencyRejects *prometheus.CounterVec
 }
 
 // NewMetrics registers the proxy metrics against the given registerer.
@@ -78,5 +79,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Namespace: ns,
 			Name:      "anonymous_request_total",
 		}, []string{"operation", "status"}),
+		ConcurrencyRejects: f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "concurrency_reject_total",
+		}, []string{"scope"}),
 	}
 }

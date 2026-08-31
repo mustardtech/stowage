@@ -155,6 +155,13 @@ func (s *Server) servePostObject(w http.ResponseWriter, r *http.Request, route R
 		return out
 	}
 
+	release := s.acquireSlot(w, r, vc.AccessKeyID, reqID)
+	if release == nil {
+		out.status, out.result = http.StatusServiceUnavailable, "concurrency-limited"
+		return out
+	}
+	defer release()
+
 	if !EnforceScope(vc.BucketScopes, route.Bucket) {
 		s.cfg.Metrics.ScopeViolations.Inc()
 		writeS3Error(w, http.StatusForbidden, "AccessDenied", "credential is not scoped to this bucket", r.URL.Path, reqID)

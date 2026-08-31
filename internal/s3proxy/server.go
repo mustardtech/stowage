@@ -53,10 +53,13 @@ type Config struct {
 	// Source is the merged credential lookup. The proxy queries it for
 	// every signed request (Lookup) and every unauthenticated request
 	// (LookupAnon).
-	Source        Source
-	Backends      *BackendResolver
-	Limiter       *Limiter
-	IPLimiter     *IPLimiter
+	Source    Source
+	Backends  *BackendResolver
+	Limiter   *Limiter
+	IPLimiter *IPLimiter
+	// Concurrency caps in-flight requests globally and per access key
+	// (anonymous requests are keyed by client IP). nil means unlimited.
+	Concurrency   *ConcurrencyLimiter
 	Metrics       *Metrics
 	Log           logr.Logger
 	HostSuffixes  []string
@@ -398,6 +401,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, reqID string) ser
 		return out
 	}
 
+	release := s.acquireSlot(w, r, vc.AccessKeyID, reqID)
+	if release == nil {
+		out.status, out.result = http.StatusServiceUnavailable, "concurrency-limited"
+		return out
+	}
+	defer release()
+
 	route := ClassifyRoute(r, s.cfg.HostSuffixes)
 	out.operation = classifyOperation(r, route)
 	out.bucket = route.Bucket
@@ -585,6 +595,16 @@ func (s *Server) serveAnonymous(w http.ResponseWriter, r *http.Request, reqID st
 		return out
 	}
 
+	// Anonymous requests have no access key; the client IP is the
+	// fairness unit, prefixed so it can never collide with a real AKID.
+	release := s.acquireSlot(w, r, "anon:"+ip, reqID)
+	if release == nil {
+		s.cfg.Metrics.AnonymousRejects.WithLabelValues("concurrency-limited").Inc()
+		out.status, out.result = http.StatusServiceUnavailable, "concurrency-limited"
+		return out
+	}
+	defer release()
+
 	backendURL, spec, err := s.cfg.Backends.Backend(r.Context(), binding.BackendName)
 	if err != nil {
 		writeS3Error(w, http.StatusBadGateway, "InternalError", err.Error(), r.URL.Path, reqID)
@@ -644,6 +664,19 @@ func (s *Server) writeAuthFailure(w http.ResponseWriter, err error, reqID string
 	s.cfg.Metrics.AuthFailures.WithLabelValues(reason).Inc()
 	writeS3Error(w, http.StatusForbidden, code, err.Error(), "", reqID)
 	return http.StatusForbidden, reason
+}
+
+// acquireSlot reserves an in-flight concurrency slot for key, writing the
+// SlowDown response and bumping the reject metric on refusal. A nil return
+// means the response is already committed and the caller must bail out;
+// otherwise the caller must defer the returned release.
+func (s *Server) acquireSlot(w http.ResponseWriter, r *http.Request, key, reqID string) func() {
+	release, scope := s.cfg.Concurrency.Acquire(r.Context(), key)
+	if release == nil {
+		s.cfg.Metrics.ConcurrencyRejects.WithLabelValues(scope).Inc()
+		writeS3Error(w, http.StatusServiceUnavailable, "SlowDown", "too many requests in flight, retry with backoff", r.URL.Path, reqID)
+	}
+	return release
 }
 
 func (s *Server) buildOutbound(r *http.Request, route RouteInfo, realBucket string, backendURL *url.URL, spec BackendSpec) (*http.Request, error) {
