@@ -88,6 +88,27 @@ func (m *MergedSource) LookupAnon(bucket string) (*AnonymousBinding, bool) {
 	return nil, false
 }
 
+// LookupCORS returns the union of CORS rules across every backing source
+// that exposes them (the Kubernetes informer's bucket-cors Secrets, the
+// SQLite admin table). Union — not first-hit — because CORS rules are
+// additive per bucket: a preflight succeeds if any rule from any source
+// covers the origin/method, mirroring how the SQLite source already unions
+// rules across backends. Sources that don't implement CORSSource are
+// skipped, so this stays correct however the wiring composes sources.
+func (m *MergedSource) LookupCORS(bucket string) ([]BucketCORSRule, bool) {
+	var out []BucketCORSRule
+	for _, s := range m.sources {
+		cs, ok := s.(CORSSource)
+		if !ok {
+			continue
+		}
+		if rules, ok := cs.LookupCORS(bucket); ok {
+			out = append(out, rules...)
+		}
+	}
+	return out, len(out) > 0
+}
+
 // Size returns the sum across sources. Used by the proxy_cache_size gauge —
 // it's a coarse signal so over-counting on collisions is acceptable.
 func (m *MergedSource) Size() int {

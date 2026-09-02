@@ -90,3 +90,45 @@ func TestMergedSource_SizeIsSum(t *testing.T) {
 	merged := NewMergedSource(nil, k8s, db)
 	require.Equal(t, 2, merged.Size())
 }
+
+// corsFakeSource is a Source that also serves CORS rules, standing in for
+// the KubernetesSource / SQLiteSource in merged-lookup tests.
+type corsFakeSource struct {
+	fakeSource
+	byCORS map[string][]BucketCORSRule
+}
+
+func (f *corsFakeSource) LookupCORS(bucket string) ([]BucketCORSRule, bool) {
+	r, ok := f.byCORS[strings.ToLower(bucket)]
+	return r, ok && len(r) > 0
+}
+
+func TestMergedSource_LookupCORSUnions(t *testing.T) {
+	k8s := &corsFakeSource{byCORS: map[string][]BucketCORSRule{
+		"docs": {{AllowedOrigins: []string{"https://a.example.com"}, AllowedMethods: []string{"PUT"}}},
+	}}
+	db := &corsFakeSource{byCORS: map[string][]BucketCORSRule{
+		"docs": {{AllowedOrigins: []string{"https://b.example.com"}, AllowedMethods: []string{"GET"}}},
+	}}
+	merged := NewMergedSource(nil, k8s, db)
+
+	rules, ok := merged.LookupCORS("docs")
+	require.True(t, ok)
+	require.Len(t, rules, 2, "rules must union across sources, not first-hit")
+
+	_, ok = merged.LookupCORS("other")
+	require.False(t, ok)
+}
+
+func TestMergedSource_LookupCORSSkipsNonCORSSources(t *testing.T) {
+	// A plain Source with no LookupCORS must not break the merged lookup.
+	plain := mkSource("AKIA", "sqlite")
+	withCORS := &corsFakeSource{byCORS: map[string][]BucketCORSRule{
+		"docs": {{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}}},
+	}}
+	merged := NewMergedSource(nil, plain, withCORS)
+
+	rules, ok := merged.LookupCORS("docs")
+	require.True(t, ok)
+	require.Len(t, rules, 1)
+}

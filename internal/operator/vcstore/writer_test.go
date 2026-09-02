@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	brokerv1a1 "github.com/stowage-dev/stowage/internal/operator/api/v1alpha1"
 )
 
 // TestWriteInternal_ByteIdentity locks in the Secret shape that proxy clients
@@ -202,4 +204,105 @@ func TestVirtualCredential_Normalize(t *testing.T) {
 		vc.Normalize()
 		require.Nil(t, vc.BucketScopes)
 	})
+}
+
+// TestWriteBucketCORS_Roundtrip locks in the Secret shape for the
+// bucket-cors path. The proxy's KubernetesSource keys off these labels and
+// data fields, so any drift is a wire-protocol change.
+func TestWriteBucketCORS_Roundtrip(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	w := &Writer{Client: cli, Namespace: "stowage-system"}
+
+	b := BucketCORS{
+		BucketName:  "my-app-uploads",
+		BackendName: "primary",
+		Rules: []brokerv1a1.CORSRule{{
+			AllowedOrigins: []string{"https://app.example.com"},
+			AllowedMethods: []string{"GET", "PUT", "POST"},
+			MaxAgeSeconds:  600,
+		}},
+		ClaimNamespace: "my-app",
+		ClaimName:      "uploads",
+		ClaimUID:       "abc-123",
+	}
+	require.NoError(t, w.WriteBucketCORS(context.Background(), b))
+
+	var got corev1.Secret
+	require.NoError(t, cli.Get(context.Background(),
+		types.NamespacedName{Namespace: "stowage-system", Name: BucketCORSSecretName(b.ClaimNamespace, b.ClaimName)},
+		&got))
+
+	require.Equal(t, map[string]string{
+		LabelRole:        RoleBucketCORS,
+		LabelClaimNS:     "my-app",
+		LabelClaimName:   "uploads",
+		LabelClaimUID:    "abc-123",
+		LabelBackendName: "primary",
+		LabelBucketName:  "my-app-uploads",
+	}, got.Labels)
+	require.Equal(t, []byte("my-app-uploads"), got.Data[DataBucketName])
+	require.Equal(t, []byte("primary"), got.Data[DataBackend])
+	require.JSONEq(t,
+		`[{"allowed_origins":["https://app.example.com"],"allowed_methods":["GET","PUT","POST"],"max_age_seconds":600}]`,
+		string(got.Data[DataCORSRules]))
+
+	// Update path: replacing the rules mutates the existing Secret.
+	b.Rules = []brokerv1a1.CORSRule{{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET"},
+	}}
+	require.NoError(t, w.WriteBucketCORS(context.Background(), b))
+	require.NoError(t, cli.Get(context.Background(),
+		types.NamespacedName{Namespace: "stowage-system", Name: BucketCORSSecretName(b.ClaimNamespace, b.ClaimName)},
+		&got))
+	require.JSONEq(t,
+		`[{"allowed_origins":["*"],"allowed_methods":["GET"]}]`,
+		string(got.Data[DataCORSRules]))
+}
+
+func TestWriteBucketCORS_RejectsIncompleteInput(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	w := &Writer{Client: cli, Namespace: "stowage-system"}
+
+	rule := brokerv1a1.CORSRule{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}}
+	// Bucket missing.
+	require.Error(t, w.WriteBucketCORS(context.Background(), BucketCORS{
+		BackendName: "primary", Rules: []brokerv1a1.CORSRule{rule},
+	}))
+	// Backend missing.
+	require.Error(t, w.WriteBucketCORS(context.Background(), BucketCORS{
+		BucketName: "b", Rules: []brokerv1a1.CORSRule{rule},
+	}))
+	// Rules missing.
+	require.Error(t, w.WriteBucketCORS(context.Background(), BucketCORS{
+		BucketName: "b", BackendName: "primary",
+	}))
+}
+
+func TestDeleteBucketCORSByClaim(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	w := &Writer{Client: cli, Namespace: "stowage-system"}
+
+	b := BucketCORS{
+		BucketName: "my-app-uploads", BackendName: "primary",
+		Rules:          []brokerv1a1.CORSRule{{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}}},
+		ClaimNamespace: "my-app", ClaimName: "uploads",
+	}
+	require.NoError(t, w.WriteBucketCORS(context.Background(), b))
+	require.NoError(t, w.DeleteBucketCORSByClaim(context.Background(), "my-app", "uploads"))
+
+	var got corev1.Secret
+	err := cli.Get(context.Background(),
+		types.NamespacedName{Namespace: "stowage-system", Name: BucketCORSSecretName("my-app", "uploads")},
+		&got)
+	require.Error(t, err, "CORS Secret must be gone")
+
+	// Deleting again (or a claim that never had one) is a no-op.
+	require.NoError(t, w.DeleteBucketCORSByClaim(context.Background(), "my-app", "uploads"))
 }

@@ -197,6 +197,35 @@ func (in *AnonymousAccess) DeepCopy() *AnonymousAccess {
 	return out
 }
 
+func (in *CORSRule) DeepCopyInto(out *CORSRule) {
+	*out = *in
+	if in.AllowedOrigins != nil {
+		out.AllowedOrigins = make([]string, len(in.AllowedOrigins))
+		copy(out.AllowedOrigins, in.AllowedOrigins)
+	}
+	if in.AllowedMethods != nil {
+		out.AllowedMethods = make([]string, len(in.AllowedMethods))
+		copy(out.AllowedMethods, in.AllowedMethods)
+	}
+	if in.AllowedHeaders != nil {
+		out.AllowedHeaders = make([]string, len(in.AllowedHeaders))
+		copy(out.AllowedHeaders, in.AllowedHeaders)
+	}
+	if in.ExposeHeaders != nil {
+		out.ExposeHeaders = make([]string, len(in.ExposeHeaders))
+		copy(out.ExposeHeaders, in.ExposeHeaders)
+	}
+}
+
+func (in *CORSRule) DeepCopy() *CORSRule {
+	if in == nil {
+		return nil
+	}
+	out := new(CORSRule)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func (in *BucketQuota) DeepCopyInto(out *BucketQuota) {
 	*out = *in
 	if in.Soft != nil {
@@ -236,6 +265,12 @@ func (in *BucketClaimSpec) DeepCopyInto(out *BucketClaimSpec) {
 	if in.Quota != nil {
 		out.Quota = new(BucketQuota)
 		in.Quota.DeepCopyInto(out.Quota)
+	}
+	if in.CORS != nil {
+		out.CORS = make([]CORSRule, len(in.CORS))
+		for i := range in.CORS {
+			in.CORS[i].DeepCopyInto(&out.CORS[i])
+		}
 	}
 }
 

@@ -24,6 +24,7 @@ const (
 	RoleVirtualCredential = "virtual-credential"
 	RoleConsumerSecret    = "consumer-secret"
 	RoleAnonymousBinding  = "anonymous-binding"
+	RoleBucketCORS        = "bucket-cors"
 
 	AnnotationExpiresAt = "broker.stowage.io/expires-at"
 
@@ -49,6 +50,15 @@ const (
 	// link in apimachinery just to parse a number.
 	DataQuotaSoftBytes = "quota_soft_bytes"
 	DataQuotaHardBytes = "quota_hard_bytes"
+
+	// DataCORSRules is a JSON-encoded array in the S3 proxy's
+	// BucketCORSRule wire shape ({allowed_origins, allowed_methods,
+	// allowed_headers, expose_headers, max_age_seconds}), carried on a
+	// role=bucket-cors Secret keyed by LabelBucketName. The proxy's
+	// KubernetesSource reads these to answer browser preflights for the
+	// bucket; malformed JSON is skipped entirely so a half-written Secret
+	// can't half-open a bucket.
+	DataCORSRules = "cors_rules"
 
 	EnvAccessKeyID     = "AWS_ACCESS_KEY_ID"
 	EnvSecretAccessKey = "AWS_SECRET_ACCESS_KEY"
@@ -79,4 +89,11 @@ func InternalSecretName(accessKeyID string) string {
 // short and DNS-safe: input is already constrained to label-style characters.
 func AnonymousBindingSecretName(claimNS, claimName string) string {
 	return "anon-" + claimNS + "-" + claimName
+}
+
+// BucketCORSSecretName derives a deterministic Secret name for the CORS
+// rules of a given (claim namespace, claim name) pair. Same naming contract
+// as AnonymousBindingSecretName.
+func BucketCORSSecretName(claimNS, claimName string) string {
+	return "cors-" + claimNS + "-" + claimName
 }

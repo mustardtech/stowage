@@ -364,14 +364,13 @@ func (s *Server) buildS3Proxy(
 	// Bridge the slog logger into the logr API the proxy uses internally.
 	proxyLog := logr.FromSlogHandler(s.logger.Handler()).WithName("s3proxy")
 
-	// Per-bucket CORS rules live in the s3_bucket_cors SQLite table; the
-	// SQLiteSource already keeps the bucket-keyed cache the proxy queries
-	// at preflight time. Reuse it as the proxy's CORSSource so writes via
-	// the admin API (which call Reload) reach the proxy immediately.
-	var corsSource s3proxy.CORSSource
-	if s.s3sqlite != nil {
-		corsSource = s.s3sqlite
-	}
+	// Per-bucket CORS rules come from two places: the s3_bucket_cors
+	// SQLite table (dashboard/admin API, which call Reload so changes
+	// reach the proxy immediately) and operator-written bucket-cors
+	// Secrets (BucketClaim.spec.cors, via the same informer that powers
+	// the credential cache). The merged source unions both at preflight
+	// time.
+	corsSource := s3proxy.CORSSource(merged)
 
 	proxyServer := s3proxy.NewServer(s3proxy.Config{
 		Source:               merged,

@@ -32,6 +32,26 @@ spec:
     hard: Quantity                       # optional, must be >= soft when both set
 ```
 
+### `spec.cors`
+
+Optional browser cross-origin rules for the bucket, answered by the
+proxy at preflight time (the backend bucket is never consulted).
+
+| Field | Notes |
+|---|---|
+| `allowedOrigins` | Required. Exact-match against the `Origin` header; `"*"` allows any. |
+| `allowedMethods` | Required. Any of `GET`, `HEAD`, `PUT`, `POST`, `DELETE`. |
+| `allowedHeaders` | Optional. Empty means the proxy's permissive SigV4 + POST-Object default set. |
+| `exposeHeaders` | Optional. Empty means the proxy default (`ETag` and friends). |
+| `maxAgeSeconds` | Optional. 0 means the proxy default (600). |
+
+The operator writes the rules to a `bucket-cors` Secret (data field
+`cors_rules`) the proxy's Kubernetes informer watches. Rules configured
+in the dashboard (Bucket settings → CORS) for the same bucket are
+**unioned** with these — a preflight succeeds if any rule from either
+source covers the origin and method. Removing `spec.cors` deletes the
+Secret and closes the bucket to browser preflights again.
+
 ## Status
 
 ```yaml

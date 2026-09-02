@@ -51,6 +51,34 @@ type BackendRef struct {
 	Name string `json:"name"`
 }
 
+// CORSRule is one browser cross-origin rule for the claim's bucket,
+// answered by the stowage S3 proxy at preflight time (the backend bucket
+// is never consulted). The operator copies the rules into a proxy-facing
+// Secret (`cors_rules`, role=bucket-cors) so the proxy's Kubernetes
+// informer picks them up alongside credentials; rules configured in the
+// dashboard for the same bucket are unioned with these.
+type CORSRule struct {
+	// AllowedOrigins are matched exactly against the request's Origin
+	// header; "*" allows any origin.
+	// +kubebuilder:validation:MinItems=1
+	AllowedOrigins []string `json:"allowedOrigins"`
+	// AllowedMethods is the set of HTTP methods the preflight may approve.
+	// +kubebuilder:validation:MinItems=1
+	AllowedMethods []string `json:"allowedMethods"`
+	// AllowedHeaders lists request headers the preflight approves. Empty
+	// means the proxy's permissive SigV4 + POST-Object default set.
+	// +optional
+	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
+	// ExposeHeaders lists response headers readable cross-origin. Empty
+	// means the proxy's default set (ETag and friends).
+	// +optional
+	ExposeHeaders []string `json:"exposeHeaders,omitempty"`
+	// MaxAgeSeconds caps preflight caching; 0 means the proxy default.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxAgeSeconds int32 `json:"maxAgeSeconds,omitempty"`
+}
+
 // BucketQuota declares per-bucket storage limits enforced by the stowage S3
 // proxy. Soft is informational (logged + surfaced in the dashboard); Hard
 // causes the proxy to refuse uploads with HTTP 507 once exceeded. The
@@ -125,6 +153,13 @@ type BucketClaimSpec struct {
 	// without an extra informer.
 	// +optional
 	Quota *BucketQuota `json:"quota,omitempty"`
+
+	// CORS declares browser cross-origin rules for the bucket, served by
+	// the stowage S3 proxy at preflight time. Empty means no proxy-side
+	// CORS (browser preflights fall through and fail, matching S3's
+	// default-deny). Unioned with any dashboard-configured rules.
+	// +optional
+	CORS []CORSRule `json:"cors,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Pending;Creating;Bound;Failed;Deleting

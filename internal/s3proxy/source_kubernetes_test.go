@@ -161,3 +161,89 @@ func TestSecretToAnonymousBinding_MissingFields(t *testing.T) {
 	}
 	require.Nil(t, secretToAnonymousBinding(sec))
 }
+
+func TestSecretToBucketCORS_Happy(t *testing.T) {
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{k8sLabelRole: k8sRoleBucketCORS},
+		},
+		Data: map[string][]byte{
+			k8sDataBucketName: []byte("Docs-Uploads"),
+			k8sDataBackend:    []byte("primary"),
+			k8sDataCORSRules:  []byte(`[{"allowed_origins":["https://docs.example.com"],"allowed_methods":["GET","PUT","POST"],"max_age_seconds":300}]`),
+		},
+	}
+	bucket, rules := secretToBucketCORS(sec)
+	require.Equal(t, "docs-uploads", bucket, "bucket key must be lower-cased")
+	require.Len(t, rules, 1)
+	require.Equal(t, []string{"https://docs.example.com"}, rules[0].AllowedOrigins)
+	require.Equal(t, []string{"GET", "PUT", "POST"}, rules[0].AllowedMethods)
+	require.Equal(t, 300, rules[0].MaxAgeSeconds)
+}
+
+func TestSecretToBucketCORS_Rejected(t *testing.T) {
+	base := func(data map[string][]byte) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{k8sLabelRole: k8sRoleBucketCORS},
+			},
+			Data: data,
+		}
+	}
+	// Bucket missing.
+	b, _ := secretToBucketCORS(base(map[string][]byte{
+		k8sDataCORSRules: []byte(`[{"allowed_origins":["*"],"allowed_methods":["GET"]}]`),
+	}))
+	require.Empty(t, b)
+	// Malformed JSON.
+	b, _ = secretToBucketCORS(base(map[string][]byte{
+		k8sDataBucketName: []byte("docs"),
+		k8sDataCORSRules:  []byte(`{not json`),
+	}))
+	require.Empty(t, b)
+	// Empty rules array.
+	b, _ = secretToBucketCORS(base(map[string][]byte{
+		k8sDataBucketName: []byte("docs"),
+		k8sDataCORSRules:  []byte(`[]`),
+	}))
+	require.Empty(t, b)
+	// A rule with no origins poisons the whole Secret.
+	b, _ = secretToBucketCORS(base(map[string][]byte{
+		k8sDataBucketName: []byte("docs"),
+		k8sDataCORSRules:  []byte(`[{"allowed_origins":[],"allowed_methods":["GET"]}]`),
+	}))
+	require.Empty(t, b)
+}
+
+func TestKubernetesSource_CORSLifecycle(t *testing.T) {
+	s := &KubernetesSource{
+		byAKID:       map[string]*VirtualCredential{},
+		byBucket:     map[string]*AnonymousBinding{},
+		byBucketCORS: map[string][]BucketCORSRule{},
+	}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				k8sLabelRole:   k8sRoleBucketCORS,
+				k8sLabelBucket: "docs-uploads",
+			},
+		},
+		Data: map[string][]byte{
+			k8sDataBucketName: []byte("docs-uploads"),
+			k8sDataBackend:    []byte("primary"),
+			k8sDataCORSRules:  []byte(`[{"allowed_origins":["https://docs.example.com"],"allowed_methods":["PUT"]}]`),
+		},
+	}
+
+	s.upsert(sec)
+	rules, ok := s.LookupCORS("DOCS-UPLOADS")
+	require.True(t, ok, "lookup must be case-insensitive")
+	require.Len(t, rules, 1)
+
+	_, ok = s.LookupCORS("other-bucket")
+	require.False(t, ok)
+
+	s.handleDelete(sec)
+	_, ok = s.LookupCORS("docs-uploads")
+	require.False(t, ok, "delete must drop the bucket's rules")
+}

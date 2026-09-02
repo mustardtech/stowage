@@ -168,6 +168,11 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.patchStatus(ctx, &claim, 30*time.Second)
 	}
 
+	if err := r.reconcileBucketCORS(ctx, &claim, bucketName); err != nil {
+		r.setClaimReady(&claim, metav1.ConditionFalse, brokerv1a1.ReasonBackendError, fmt.Sprintf("bucket CORS: %v", err))
+		return r.patchStatus(ctx, &claim, 30*time.Second)
+	}
+
 	claim.Status.Phase = brokerv1a1.PhaseBound
 	claim.Status.BucketName = bucketName
 	claim.Status.ProxyEndpoint = endpoint
@@ -240,6 +245,10 @@ func (r *BucketClaimReconciler) handleDelete(ctx context.Context, logger logr.Lo
 	}
 	if err := r.Writer.DeleteAnonymousBindingByClaim(ctx, claim.Namespace, claim.Name); err != nil {
 		logger.Info("delete anonymous binding failed", "err", err)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if err := r.Writer.DeleteBucketCORSByClaim(ctx, claim.Namespace, claim.Name); err != nil {
+		logger.Info("delete bucket CORS failed", "err", err)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
@@ -454,6 +463,23 @@ func (r *BucketClaimReconciler) reconcileAnonymousBinding(ctx context.Context, c
 		BackendName:    claim.Spec.BackendRef.Name,
 		Mode:           string(a.Mode),
 		PerSourceIPRPS: a.PerSourceIPRPS,
+		ClaimNamespace: claim.Namespace,
+		ClaimName:      claim.Name,
+		ClaimUID:       string(claim.UID),
+	})
+}
+
+// reconcileBucketCORS writes or removes the proxy-facing CORS Secret
+// depending on the claim's spec. An empty spec.cors deletes any existing
+// Secret so removing rules from the claim closes the bucket again.
+func (r *BucketClaimReconciler) reconcileBucketCORS(ctx context.Context, claim *brokerv1a1.BucketClaim, bucketName string) error {
+	if len(claim.Spec.CORS) == 0 {
+		return r.Writer.DeleteBucketCORSByClaim(ctx, claim.Namespace, claim.Name)
+	}
+	return r.Writer.WriteBucketCORS(ctx, vcstore.BucketCORS{
+		BucketName:     bucketName,
+		BackendName:    claim.Spec.BackendRef.Name,
+		Rules:          claim.Spec.CORS,
 		ClaimNamespace: claim.Namespace,
 		ClaimName:      claim.Name,
 		ClaimUID:       string(claim.UID),

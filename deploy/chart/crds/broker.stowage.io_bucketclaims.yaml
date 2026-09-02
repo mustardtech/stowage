@@ -92,6 +92,37 @@ spec:
                       type: integer
                       minimum: 0
                       default: 0
+                cors:
+                  type: array
+                  description: |
+                    Browser cross-origin rules for the bucket, answered by
+                    the stowage S3 proxy at preflight time. Empty means no
+                    proxy-side CORS (preflights fall through and fail,
+                    matching S3's default-deny). Unioned with any
+                    dashboard-configured rules for the same bucket.
+                  items:
+                    type: object
+                    required: [allowedOrigins, allowedMethods]
+                    properties:
+                      allowedOrigins:
+                        type: array
+                        minItems: 1
+                        items: {type: string, minLength: 1}
+                      allowedMethods:
+                        type: array
+                        minItems: 1
+                        items:
+                          type: string
+                          enum: [GET, HEAD, PUT, POST, DELETE]
+                      allowedHeaders:
+                        type: array
+                        items: {type: string}
+                      exposeHeaders:
+                        type: array
+                        items: {type: string}
+                      maxAgeSeconds:
+                        type: integer
+                        minimum: 0
                 quota:
                   type: object
                   description: |

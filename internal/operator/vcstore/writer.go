@@ -5,6 +5,7 @@ package vcstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -226,6 +227,95 @@ func (w *Writer) DeleteAnonymousBindingByClaim(ctx context.Context, claimNS, cla
 	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: w.Namespace}}
 	if err := w.Client.Delete(ctx, sec); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete anonymous binding: %w", err)
+	}
+	return nil
+}
+
+// corsWireRule is the JSON shape the S3 proxy expects in DataCORSRules —
+// it MUST match s3proxy.BucketCORSRule's tags exactly (the proxy
+// unmarshals the Secret payload straight into that type).
+type corsWireRule struct {
+	AllowedOrigins []string `json:"allowed_origins"`
+	AllowedMethods []string `json:"allowed_methods"`
+	AllowedHeaders []string `json:"allowed_headers,omitempty"`
+	ExposeHeaders  []string `json:"expose_headers,omitempty"`
+	MaxAgeSeconds  int      `json:"max_age_seconds,omitempty"`
+}
+
+// BucketCORS is the proxy-facing record carrying a bucket's CORS rules.
+type BucketCORS struct {
+	BucketName     string
+	BackendName    string
+	Rules          []brokerv1a1.CORSRule
+	ClaimNamespace string
+	ClaimName      string
+	ClaimUID       string
+}
+
+// WriteBucketCORS creates or updates the proxy-facing Secret carrying a
+// bucket's CORS rules. Secrets live in the operator namespace and are
+// cleaned up on claim delete via DeleteBucketCORSByClaim.
+func (w *Writer) WriteBucketCORS(ctx context.Context, b BucketCORS) error {
+	if b.BucketName == "" || b.BackendName == "" || len(b.Rules) == 0 {
+		return fmt.Errorf("bucket CORS requires bucket, backend, and at least one rule")
+	}
+	wire := make([]corsWireRule, 0, len(b.Rules))
+	for _, r := range b.Rules {
+		wire = append(wire, corsWireRule{
+			AllowedOrigins: r.AllowedOrigins,
+			AllowedMethods: r.AllowedMethods,
+			AllowedHeaders: r.AllowedHeaders,
+			ExposeHeaders:  r.ExposeHeaders,
+			MaxAgeSeconds:  int(r.MaxAgeSeconds),
+		})
+	}
+	rules, err := json.Marshal(wire)
+	if err != nil {
+		return fmt.Errorf("marshal CORS rules: %w", err)
+	}
+	labels := map[string]string{
+		LabelRole:        RoleBucketCORS,
+		LabelClaimNS:     b.ClaimNamespace,
+		LabelClaimName:   b.ClaimName,
+		LabelClaimUID:    b.ClaimUID,
+		LabelBackendName: b.BackendName,
+		LabelBucketName:  b.BucketName,
+	}
+	data := map[string][]byte{
+		DataBucketName: []byte(b.BucketName),
+		DataBackend:    []byte(b.BackendName),
+		DataClaimUID:   []byte(b.ClaimUID),
+		DataCORSRules:  rules,
+	}
+	name := BucketCORSSecretName(b.ClaimNamespace, b.ClaimName)
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: w.Namespace,
+			Labels:    labels,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: data,
+	}
+	var existing corev1.Secret
+	err = w.Client.Get(ctx, types.NamespacedName{Namespace: w.Namespace, Name: name}, &existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		return w.Client.Create(ctx, sec)
+	case err != nil:
+		return fmt.Errorf("get existing bucket CORS: %w", err)
+	}
+	sec.ResourceVersion = existing.ResourceVersion
+	return w.Client.Update(ctx, sec)
+}
+
+// DeleteBucketCORSByClaim removes the CORS Secret (if any) owned by the
+// given claim. Returns nil when none exists.
+func (w *Writer) DeleteBucketCORSByClaim(ctx context.Context, claimNS, claimName string) error {
+	name := BucketCORSSecretName(claimNS, claimName)
+	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: w.Namespace}}
+	if err := w.Client.Delete(ctx, sec); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete bucket CORS: %w", err)
 	}
 	return nil
 }
