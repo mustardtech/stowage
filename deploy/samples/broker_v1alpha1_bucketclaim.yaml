@@ -26,3 +26,11 @@ spec:
     # perSourceIPRPS bounds anonymous requests/second per client IP.
     # 0 means inherit the proxy default (configured at install time).
     perSourceIPRPS: 0
+  # cors declares browser cross-origin rules for the bucket, answered by
+  # the S3 proxy at preflight time. Omit entirely for no proxy-side CORS
+  # (browser preflights fail, matching S3's default-deny). Unioned with
+  # any rules configured in the dashboard for the same bucket.
+  # cors:
+  #   - allowedOrigins: ["https://app.example.com"]
+  #     allowedMethods: [GET, PUT, POST]
+  #     maxAgeSeconds: 600

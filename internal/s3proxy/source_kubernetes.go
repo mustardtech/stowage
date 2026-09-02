@@ -36,6 +36,7 @@ const (
 
 	k8sRoleVirtualCredential = "virtual-credential"
 	k8sRoleAnonymousBinding  = "anonymous-binding"
+	k8sRoleBucketCORS        = "bucket-cors"
 
 	k8sDataAccessKeyID     = "access_key_id"
 	k8sDataSecretAccessKey = "secret_access_key"
@@ -51,6 +52,10 @@ const (
 	// internal/operator/vcstore/labels.go.
 	k8sDataQuotaSoftBytes = "quota_soft_bytes"
 	k8sDataQuotaHardBytes = "quota_hard_bytes"
+	// k8sDataCORSRules is a JSON-encoded []BucketCORSRule the operator
+	// copies from BucketClaim.spec.cors into a role=bucket-cors Secret.
+	// Must match internal/operator/vcstore/labels.go.
+	k8sDataCORSRules = "cors_rules"
 )
 
 // LimitObserver receives quota updates as the K8s informer sees them. The
@@ -89,9 +94,10 @@ type KubernetesSource struct {
 	client kubernetes.Interface
 	logger *slog.Logger
 
-	mu       sync.RWMutex
-	byAKID   map[string]*VirtualCredential
-	byBucket map[string]*AnonymousBinding
+	mu           sync.RWMutex
+	byAKID       map[string]*VirtualCredential
+	byBucket     map[string]*AnonymousBinding
+	byBucketCORS map[string][]BucketCORSRule
 
 	// started is set once Start has been called so callers can poll for
 	// readiness via Size() without racing the first cache prime.
@@ -117,11 +123,12 @@ func NewKubernetesSource(cfg KubernetesSourceConfig, logger *slog.Logger) (*Kube
 		return nil, fmt.Errorf("new kubernetes client: %w", err)
 	}
 	return &KubernetesSource{
-		cfg:      cfg,
-		client:   client,
-		logger:   logger,
-		byAKID:   map[string]*VirtualCredential{},
-		byBucket: map[string]*AnonymousBinding{},
+		cfg:          cfg,
+		client:       client,
+		logger:       logger,
+		byAKID:       map[string]*VirtualCredential{},
+		byBucket:     map[string]*AnonymousBinding{},
+		byBucketCORS: map[string][]BucketCORSRule{},
 	}, nil
 }
 
@@ -137,8 +144,8 @@ func (s *KubernetesSource) Start(ctx context.Context) error {
 		resync = 0
 	}
 
-	roleSelector := fmt.Sprintf("%s in (%s,%s)",
-		k8sLabelRole, k8sRoleVirtualCredential, k8sRoleAnonymousBinding)
+	roleSelector := fmt.Sprintf("%s in (%s,%s,%s)",
+		k8sLabelRole, k8sRoleVirtualCredential, k8sRoleAnonymousBinding, k8sRoleBucketCORS)
 
 	factory := informers.NewSharedInformerFactoryWithOptions(s.client, resync,
 		informers.WithNamespace(s.cfg.Namespace),
@@ -264,6 +271,12 @@ func (s *KubernetesSource) upsert(obj any) {
 			s.byBucket[strings.ToLower(a.BucketName)] = a
 			s.mu.Unlock()
 		}
+	case k8sRoleBucketCORS:
+		if bucket, rules := secretToBucketCORS(sec); bucket != "" {
+			s.mu.Lock()
+			s.byBucketCORS[bucket] = rules
+			s.mu.Unlock()
+		}
 	}
 }
 
@@ -345,6 +358,17 @@ func (s *KubernetesSource) handleDelete(obj any) {
 		s.mu.Lock()
 		delete(s.byBucket, strings.ToLower(bucket))
 		s.mu.Unlock()
+	case k8sRoleBucketCORS:
+		bucket := sec.Labels[k8sLabelBucket]
+		if bucket == "" {
+			bucket = string(sec.Data[k8sDataBucketName])
+		}
+		if bucket == "" {
+			return
+		}
+		s.mu.Lock()
+		delete(s.byBucketCORS, strings.ToLower(bucket))
+		s.mu.Unlock()
 	}
 }
 
@@ -388,6 +412,49 @@ func secretToVirtualCredential(sec *corev1.Secret) *VirtualCredential {
 		}
 	}
 	return vc
+}
+
+// LookupCORS returns the CORS rules for bucket sourced from operator-written
+// bucket-cors Secrets, or false when the bucket has none. Satisfies the
+// CORSSource contract; the wiring layer unions this with the SQLite-backed
+// rules via MergedSource.
+func (s *KubernetesSource) LookupCORS(bucket string) ([]BucketCORSRule, bool) {
+	if bucket == "" {
+		return nil, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rules, ok := s.byBucketCORS[strings.ToLower(bucket)]
+	if !ok || len(rules) == 0 {
+		return nil, false
+	}
+	out := make([]BucketCORSRule, len(rules))
+	copy(out, rules)
+	return out, true
+}
+
+// secretToBucketCORS decodes one operator-written bucket-cors Secret.
+// Returns ("", nil) when the bucket or rules are missing/malformed — the
+// source skips those entries so a half-written Secret can't half-open a
+// bucket to cross-origin callers.
+func secretToBucketCORS(sec *corev1.Secret) (string, []BucketCORSRule) {
+	bucket := string(sec.Data[k8sDataBucketName])
+	if bucket == "" {
+		bucket = sec.Labels[k8sLabelBucket]
+	}
+	if bucket == "" {
+		return "", nil
+	}
+	var rules []BucketCORSRule
+	if err := json.Unmarshal(sec.Data[k8sDataCORSRules], &rules); err != nil || len(rules) == 0 {
+		return "", nil
+	}
+	for _, ru := range rules {
+		if len(ru.AllowedOrigins) == 0 || len(ru.AllowedMethods) == 0 {
+			return "", nil
+		}
+	}
+	return strings.ToLower(bucket), rules
 }
 
 func secretToAnonymousBinding(sec *corev1.Secret) *AnonymousBinding {

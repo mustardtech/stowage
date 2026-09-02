@@ -6,6 +6,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -75,6 +76,41 @@ func validateCommon(c *brokerv1a1.BucketClaim) error {
 		if a.PerSourceIPRPS < 0 {
 			return fmt.Errorf("spec.anonymousAccess.perSourceIPRPS must be >= 0")
 		}
+	}
+	for i, ru := range c.Spec.CORS {
+		if err := validateCORSRule(ru); err != nil {
+			return fmt.Errorf("spec.cors[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// corsAllowedMethods is the S3-permitted preflight method set — the same
+// set real S3 accepts in bucket CORS configuration. Anything else is a
+// typo or a method the proxy would never serve anyway.
+var corsAllowedMethods = map[string]struct{}{
+	"GET": {}, "HEAD": {}, "PUT": {}, "POST": {}, "DELETE": {},
+}
+
+func validateCORSRule(ru brokerv1a1.CORSRule) error {
+	if len(ru.AllowedOrigins) == 0 {
+		return fmt.Errorf("allowedOrigins must not be empty")
+	}
+	for _, o := range ru.AllowedOrigins {
+		if o == "" {
+			return fmt.Errorf("allowedOrigins entries must not be empty")
+		}
+	}
+	if len(ru.AllowedMethods) == 0 {
+		return fmt.Errorf("allowedMethods must not be empty")
+	}
+	for _, m := range ru.AllowedMethods {
+		if _, ok := corsAllowedMethods[strings.ToUpper(m)]; !ok {
+			return fmt.Errorf("allowedMethods %q is not one of GET, HEAD, PUT, POST, DELETE", m)
+		}
+	}
+	if ru.MaxAgeSeconds < 0 {
+		return fmt.Errorf("maxAgeSeconds must be >= 0")
 	}
 	return nil
 }

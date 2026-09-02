@@ -123,3 +123,61 @@ func TestBucketClaimValidator_AnonymousAccess(t *testing.T) {
 	_, err = v.ValidateCreate(context.Background(), badRPS)
 	require.ErrorContains(t, err, "perSourceIPRPS")
 }
+
+func TestBucketClaimValidator_CORS(t *testing.T) {
+	v := &BucketClaimValidator{}
+
+	mk := func(rules ...brokerv1a1.CORSRule) *brokerv1a1.BucketClaim {
+		return &brokerv1a1.BucketClaim{
+			Spec: brokerv1a1.BucketClaimSpec{
+				BackendRef: brokerv1a1.BackendRef{Name: "primary"},
+				CORS:       rules,
+			},
+		}
+	}
+
+	// Valid rule, mixed-case methods tolerated.
+	_, err := v.ValidateCreate(context.Background(), mk(brokerv1a1.CORSRule{
+		AllowedOrigins: []string{"https://docs.example.com"},
+		AllowedMethods: []string{"get", "PUT", "Post"},
+		MaxAgeSeconds:  300,
+	}))
+	require.NoError(t, err)
+
+	// No CORS at all is fine.
+	_, err = v.ValidateCreate(context.Background(), mk())
+	require.NoError(t, err)
+
+	// Empty origins.
+	_, err = v.ValidateCreate(context.Background(), mk(brokerv1a1.CORSRule{
+		AllowedMethods: []string{"GET"},
+	}))
+	require.Error(t, err)
+
+	// Empty origin entry.
+	_, err = v.ValidateCreate(context.Background(), mk(brokerv1a1.CORSRule{
+		AllowedOrigins: []string{""},
+		AllowedMethods: []string{"GET"},
+	}))
+	require.Error(t, err)
+
+	// Empty methods.
+	_, err = v.ValidateCreate(context.Background(), mk(brokerv1a1.CORSRule{
+		AllowedOrigins: []string{"*"},
+	}))
+	require.Error(t, err)
+
+	// Unsupported method.
+	_, err = v.ValidateCreate(context.Background(), mk(brokerv1a1.CORSRule{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"PATCH"},
+	}))
+	require.Error(t, err)
+
+	// Second rule bad → error names the index.
+	_, err = v.ValidateCreate(context.Background(), mk(
+		brokerv1a1.CORSRule{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}},
+		brokerv1a1.CORSRule{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"TRACE"}},
+	))
+	require.ErrorContains(t, err, "spec.cors[1]")
+}
