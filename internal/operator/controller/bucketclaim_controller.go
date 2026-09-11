@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -181,10 +182,17 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if rotatedAt != nil {
 		claim.Status.RotatedAt = rotatedAt
 	}
+	// Announce only the transition into Ready (first bind, or recovery from
+	// a failure). Every requeue lands here while the claim stays healthy, so
+	// an unconditional event repeats every few minutes per claim, forever.
+	wasReady := apimeta.IsStatusConditionTrue(claim.Status.Conditions, brokerv1a1.ConditionReady)
 	r.setClaimReady(&claim, metav1.ConditionTrue, brokerv1a1.ReasonBound, "bucket and credentials ready")
-	r.Recorder.Event(&claim, corev1.EventTypeNormal, "Bound", "claim bound to backend")
 
-	return r.patchStatus(ctx, &claim, r.nextRotation(&claim))
+	res, err := r.patchStatus(ctx, &claim, r.nextRotation(&claim))
+	if err == nil && !wasReady {
+		r.Recorder.Event(&claim, corev1.EventTypeNormal, "Bound", "claim bound to backend")
+	}
+	return res, err
 }
 
 func (r *BucketClaimReconciler) handleDelete(ctx context.Context, logger logr.Logger, claim *brokerv1a1.BucketClaim, bck *brokerv1a1.S3Backend) (ctrl.Result, error) {
