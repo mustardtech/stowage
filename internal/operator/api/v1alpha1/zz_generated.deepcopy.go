@@ -63,6 +63,23 @@ func (in *S3BackendSpec) DeepCopyInto(out *S3BackendSpec) {
 		out.TLS = new(TLSSpec)
 		in.TLS.DeepCopyInto(out.TLS)
 	}
+	if in.DefaultEncryption != nil {
+		out.DefaultEncryption = new(DefaultEncryptionSpec)
+		*out.DefaultEncryption = *in.DefaultEncryption
+	}
+}
+
+func (in *DefaultEncryptionSpec) DeepCopyInto(out *DefaultEncryptionSpec) {
+	*out = *in
+}
+
+func (in *DefaultEncryptionSpec) DeepCopy() *DefaultEncryptionSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(DefaultEncryptionSpec)
+	in.DeepCopyInto(out)
+	return out
 }
 
 func (in *S3BackendSpec) DeepCopy() *S3BackendSpec {

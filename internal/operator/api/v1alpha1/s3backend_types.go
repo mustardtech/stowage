@@ -47,6 +47,20 @@ type TLSSpec struct {
 	CABundleSecretRef *CABundleRef `json:"caBundleSecretRef,omitempty"`
 }
 
+// DefaultEncryption is the server-side encryption rule the operator applies
+// to every bucket it creates on this backend (and re-asserts on each
+// reconcile). SSE-KMS with a per-tenant key is how Mustard keeps data-at-
+// rest keys outside the storage box (OpenBao transit); the s3proxy strips
+// per-request x-amz-server-side-encryption-aws-kms-key-id, so the bucket
+// default is the only mechanism that reaches consumers.
+type DefaultEncryptionSpec struct {
+	// +kubebuilder:validation:Enum=AES256;aws:kms
+	SSEAlgorithm string `json:"sseAlgorithm"`
+	// KMSKeyID is required when SSEAlgorithm is aws:kms.
+	// +optional
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+}
+
 type S3BackendSpec struct {
 	// +kubebuilder:validation:Pattern=`^https?://.+`
 	Endpoint string `json:"endpoint"`
@@ -66,6 +80,9 @@ type S3BackendSpec struct {
 	// name for a claim. Variables: .Namespace, .Name, .Hash.
 	// +kubebuilder:default=`{{ .Namespace }}-{{ .Name }}`
 	BucketNameTemplate string `json:"bucketNameTemplate,omitempty"`
+
+	// +optional
+	DefaultEncryption *DefaultEncryptionSpec `json:"defaultEncryption,omitempty"`
 }
 
 type S3BackendStatus struct {
@@ -90,6 +107,7 @@ const (
 	ReasonCreatedOnBackend       = "CreatedOnBackend"
 	ReasonSecretWritten          = "SecretWritten"
 	ReasonCreationInconsistent   = "CreationInconsistent"
+	ReasonEncryptionNotApplied   = "EncryptionNotApplied"
 	ConditionBucketCreated       = "BucketCreated"
 	ConditionCredentialsProvided = "CredentialsProvisioned"
 )
