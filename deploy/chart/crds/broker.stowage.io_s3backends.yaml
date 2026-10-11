@@ -70,6 +70,13 @@ spec:
                 bucketNameTemplate:
                   type: string
                   default: "{{ .Namespace }}-{{ .Name }}"
+                defaultEncryption:
+                  type: object
+                  description: Server-side encryption rule applied to every bucket the operator creates on this backend and re-asserted on each reconcile.
+                  required: [sseAlgorithm]
+                  properties:
+                    sseAlgorithm: {type: string, enum: [AES256, "aws:kms"]}
+                    kmsKeyId: {type: string}
             status:
               type: object
               properties:

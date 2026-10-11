@@ -130,6 +130,13 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return r.patchStatus(ctx, &claim, 15*time.Second)
 		}
 	}
+	if enc := bck.Spec.DefaultEncryption; enc != nil {
+		rule := backend.EncryptionRule{SSEAlgorithm: enc.SSEAlgorithm, KMSKeyID: enc.KMSKeyID}
+		if err := ops.EnsureBucketEncryption(ctx, bucketName, rule); err != nil {
+			r.setClaimReady(&claim, metav1.ConditionFalse, brokerv1a1.ReasonEncryptionNotApplied, fmt.Sprintf("default encryption: %v", err))
+			return r.patchStatus(ctx, &claim, 30*time.Second)
+		}
+	}
 	claim.Status.Conditions = setCondition(claim.Status.Conditions, metav1.Condition{
 		Type:   brokerv1a1.ConditionBucketCreated,
 		Status: metav1.ConditionTrue,

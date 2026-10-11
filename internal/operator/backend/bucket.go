@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 // Ops wraps the S3 bucket-level operations the control plane needs.
@@ -30,6 +31,55 @@ func (o *Ops) PutBucket(ctx context.Context, name string) error {
 		return nil
 	}
 	return err
+}
+
+// EncryptionRule is the bucket-default SSE rule the operator asserts.
+type EncryptionRule struct {
+	SSEAlgorithm string
+	KMSKeyID     string
+}
+
+// EnsureBucketEncryption makes the bucket's default encryption match rule.
+// It reads first and only writes on a difference, so a reconcile against a
+// correctly configured bucket costs one GET. A backend that does not
+// implement bucket encryption surfaces its error unchanged: the caller
+// holds the claim not-Ready rather than hand out a plaintext bucket.
+func (o *Ops) EnsureBucketEncryption(ctx context.Context, name string, rule EncryptionRule) error {
+	want := s3types.ServerSideEncryptionByDefault{SSEAlgorithm: s3types.ServerSideEncryption(rule.SSEAlgorithm)}
+	if rule.KMSKeyID != "" {
+		want.KMSMasterKeyID = aws.String(rule.KMSKeyID)
+	}
+	cur, err := o.S3.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: aws.String(name)})
+	if err == nil && cur.ServerSideEncryptionConfiguration != nil {
+		for _, r := range cur.ServerSideEncryptionConfiguration.Rules {
+			d := r.ApplyServerSideEncryptionByDefault
+			if d != nil && d.SSEAlgorithm == want.SSEAlgorithm && aws.ToString(d.KMSMasterKeyID) == aws.ToString(want.KMSMasterKeyID) {
+				return nil
+			}
+		}
+	} else if err != nil && !isNoEncryptionConfig(err) {
+		return fmt.Errorf("get bucket encryption: %w", Classify(err))
+	}
+	_, err = o.S3.PutBucketEncryption(ctx, &s3.PutBucketEncryptionInput{
+		Bucket: aws.String(name),
+		ServerSideEncryptionConfiguration: &s3types.ServerSideEncryptionConfiguration{
+			Rules: []s3types.ServerSideEncryptionRule{{ApplyServerSideEncryptionByDefault: &want}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("put bucket encryption: %w", Classify(err))
+	}
+	return nil
+}
+
+// isNoEncryptionConfig reports the S3 "no default encryption configured"
+// answer, which is the normal state of a freshly created bucket.
+func isNoEncryptionConfig(err error) bool {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorCode() == "ServerSideEncryptionConfigurationNotFoundError"
+	}
+	return false
 }
 
 func (o *Ops) DeleteBucket(ctx context.Context, name string) error {

@@ -38,6 +38,7 @@ spec:
 | `spec.tls.insecureSkipVerify` | no | false | Skip TLS verify. Don't enable in production. |
 | `spec.tls.caBundleSecretRef` | no | — | Custom CA bundle Secret. Defaults to `key=ca.crt`. |
 | `spec.bucketNameTemplate` | no | `{{ .Namespace }}-{{ .Name }}` | Go text/template applied to `BucketClaim` to compute the real bucket name. Vars: `.Namespace`, `.Name`, `.Hash`. |
+| `spec.defaultEncryption` | no | unset | Server-side encryption rule the operator applies to every bucket it creates on this backend and re-asserts on each reconcile (`sseAlgorithm: AES256` or `aws:kms` with `kmsKeyId`). With `aws:kms` the key id names the backend's KMS key — one per tenant backend (e.g. `foodstuffs-s3`). If the backend refuses the rule the claim stays not-Ready with reason `EncryptionNotApplied`; a plaintext bucket is never handed out. |
 
 ## Status
 
