@@ -28,6 +28,21 @@ var stripInbound = map[string]struct{}{
 	"trailer":                      {},
 	"transfer-encoding":            {},
 	"upgrade":                      {},
+	// Proxy-path headers added by the edge (Traefik) describe the client's
+	// hop to US, not ours to the backend. Forwarding them is wrong in
+	// general and breaks SigV4 on backends that honour them: SeaweedFS
+	// (like MinIO) verifies the signature against X-Forwarded-Host when it
+	// is present and never falls back to the real Host, so every request we
+	// re-sign for `<backend-ip>:<port>` fails with SignatureDoesNotMatch
+	// (found 2026-10-11 on the racknas2 SeaweedFS pilot; Garage ignores
+	// these headers, which is why it never surfaced before).
+	"forwarded":          {},
+	"x-forwarded-for":    {},
+	"x-forwarded-host":   {},
+	"x-forwarded-port":   {},
+	"x-forwarded-proto":  {},
+	"x-forwarded-prefix": {},
+	"x-real-ip":          {},
 }
 
 // Allow-listed X-Amz-* headers that the backend cares about. Anything else

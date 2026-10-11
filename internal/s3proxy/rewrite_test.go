@@ -252,3 +252,35 @@ func TestAWSPathEscape_FastPath(t *testing.T) {
 		t.Errorf("fast path expected %q, got %q", in, got)
 	}
 }
+
+// TestPrepareOutboundHeaders_StripsProxyPathHeaders: edge-added proxy-path
+// headers must never reach the backend. SeaweedFS verifies SigV4 against
+// X-Forwarded-Host when present (and only that), so forwarding Traefik's
+// headers makes every re-signed request 403.
+func TestPrepareOutboundHeaders_StripsProxyPathHeaders(t *testing.T) {
+	in := http.Header{}
+	for k, v := range map[string]string{
+		"X-Forwarded-Host":   "s3.stowage.example",
+		"X-Forwarded-Proto":  "https",
+		"X-Forwarded-Port":   "443",
+		"X-Forwarded-For":    "203.0.113.9",
+		"X-Forwarded-Prefix": "/x",
+		"Forwarded":          "for=203.0.113.9;host=s3.stowage.example;proto=https",
+		"X-Real-Ip":          "203.0.113.9",
+		"Content-Type":       "application/octet-stream",
+		"X-Amz-Meta-Owner":   "pilot",
+	} {
+		in.Set(k, v)
+	}
+	out := PrepareOutboundHeaders(in)
+	for _, k := range []string{"X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Forwarded-For", "X-Forwarded-Prefix", "Forwarded", "X-Real-Ip"} {
+		if _, ok := out[k]; ok {
+			t.Errorf("%s must not be forwarded upstream", k)
+		}
+	}
+	for _, k := range []string{"Content-Type", "X-Amz-Meta-Owner"} {
+		if out.Get(k) == "" {
+			t.Errorf("%s must pass through", k)
+		}
+	}
+}
