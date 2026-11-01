@@ -3,7 +3,7 @@
 
 // Package sqlite implements the default stowage persistence backend using
 // modernc.org/sqlite (CGo-free, keeps the single-binary promise).
-package sqlite
+package sqlstore
 
 import (
 	"context"

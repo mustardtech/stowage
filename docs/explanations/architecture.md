@@ -69,7 +69,7 @@ pools.
               │   ├─ vcstore writer (Secrets)               │
               │   └─ admin client (bucket lifecycle)        │
               │                                             │
-              │  SQLite  (internal/store/sqlite)            │
+              │  SQLite  (internal/store/sqlstore)            │
               │   ├─ users, sessions, audit, shares,        │
               │   │   pinned buckets                        │
               │   ├─ sealed endpoint secrets                │

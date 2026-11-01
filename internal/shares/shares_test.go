@@ -15,14 +15,14 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/shares"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 func setup(t *testing.T) (*shares.Service, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("sqlite open: %v", err)
 	}

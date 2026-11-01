@@ -21,7 +21,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/proxyurl"
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // SourceReloader is the subset of s3proxy.SQLiteSource the admin handlers
@@ -35,7 +35,7 @@ type SourceReloader interface {
 // Reloader is optional — when nil, mutations write to the DB but the
 // in-memory cache won't refresh until the next scheduled tick.
 type S3CredentialDeps struct {
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Sealer   *secrets.Sealer
 	Reloader SourceReloader
 	Audit    audit.Recorder
@@ -72,7 +72,7 @@ type s3CredDTO struct {
 	BucketURLs  map[string]string `json:"bucket_urls,omitempty"`
 }
 
-func (d *S3CredentialDeps) credToDTO(c *sqlite.S3Credential) s3CredDTO {
+func (d *S3CredentialDeps) credToDTO(c *sqlstore.S3Credential) s3CredDTO {
 	out := s3CredDTO{
 		AccessKey:   c.AccessKey,
 		BackendID:   c.BackendID,
@@ -196,7 +196,7 @@ func (d *S3CredentialDeps) handleCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	now := time.Now().UTC()
-	c := &sqlite.S3Credential{
+	c := &sqlstore.S3Credential{
 		AccessKey:    akid,
 		SecretKeyEnc: enc,
 		BackendID:    req.BackendID,
@@ -224,7 +224,7 @@ func (d *S3CredentialDeps) handleCreate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := d.Store.CreateS3Credential(r.Context(), c); err != nil {
-		if errors.Is(err, sqlite.ErrS3AccessKeyTaken) {
+		if errors.Is(err, sqlstore.ErrS3AccessKeyTaken) {
 			writeError(w, http.StatusConflict, "conflict", "access key already exists (very unlikely — retry)", "")
 			return
 		}
@@ -274,7 +274,7 @@ func (d *S3CredentialDeps) handlePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	patch := sqlite.S3CredentialPatch{
+	patch := sqlstore.S3CredentialPatch{
 		UpdatedBy: sql.NullString{String: id.UserID, Valid: id.UserID != ""},
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -307,7 +307,7 @@ func (d *S3CredentialDeps) handlePatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := d.Store.UpdateS3Credential(r.Context(), akid, patch); err != nil {
-		if errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+		if errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "credential not found", "")
 			return
 		}
@@ -337,7 +337,7 @@ func (d *S3CredentialDeps) handleDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := d.Store.DeleteS3Credential(r.Context(), akid); err != nil {
-		if errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+		if errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "credential not found", "")
 			return
 		}

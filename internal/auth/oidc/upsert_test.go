@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 
 	"github.com/oklog/ulid/v2"
 )
 
 // openTestStore brings up a temp SQLite with all migrations applied.
-func openTestStore(t *testing.T) *sqlite.Store {
+func openTestStore(t *testing.T) *sqlstore.Store {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "oidc.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "oidc.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestUpsertOIDCUserAdoptsLegacyRowOnce(t *testing.T) {
 	// Inject a pre-migration-v6-style row directly: identity_source=oidc:idp,
 	// oidc_subject = NULL.
 	now := time.Now().UTC()
-	legacy := &sqlite.User{
+	legacy := &sqlstore.User{
 		ID:             ulid.Make().String(),
 		Username:       "legacy-bob",
 		Role:           "admin",

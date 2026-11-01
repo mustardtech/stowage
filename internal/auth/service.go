@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/config"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 
 	"github.com/oklog/ulid/v2"
 )
@@ -20,7 +20,7 @@ import (
 type Service struct {
 	Cfg      config.AuthConfig
 	Sessions *SessionManager
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Policy   PasswordPolicy
 	// Static user; populated when config has auth.static.enabled=true.
 	Static *StaticUser
@@ -43,7 +43,7 @@ const identityCacheTTL = 30 * time.Second
 
 // NewService builds a Service from config and an open store. The caller is
 // responsible for loading any referenced env-var secrets before calling.
-func NewService(cfg config.AuthConfig, store *sqlite.Store, static *StaticUser) *Service {
+func NewService(cfg config.AuthConfig, store *sqlstore.Store, static *StaticUser) *Service {
 	return &Service{
 		Cfg:   cfg,
 		Store: store,
@@ -74,7 +74,7 @@ func (s *Service) ModeEnabled(mode string) bool {
 // ResolveIdentity satisfies the Resolver interface used by Attach middleware.
 // The session must already be loaded (Attach hands its result through) so we
 // don't repeat a SELECT against the sessions table.
-func (s *Service) ResolveIdentity(ctx context.Context, sess *sqlite.Session) (Identity, error) {
+func (s *Service) ResolveIdentity(ctx context.Context, sess *sqlstore.Session) (Identity, error) {
 	if sess == nil {
 		return Identity{}, ErrIdentityInvalid
 	}
@@ -83,7 +83,7 @@ func (s *Service) ResolveIdentity(ctx context.Context, sess *sqlite.Session) (Id
 		SessionID:    sess.ID,
 		CSRFToken:    sess.CSRFToken,
 		Source:       sess.IdentitySource,
-		MustChangePW: sess.Flags&sqlite.FlagMustChangePW != 0,
+		MustChangePW: sess.Flags&sqlstore.FlagMustChangePW != 0,
 	}
 
 	if sess.IdentitySource == SourceStatic {
@@ -211,7 +211,7 @@ func (s *Service) ChangeOwnPassword(ctx context.Context, userID, keepSessionID, 
 		return err
 	}
 	if keepSessionID != "" {
-		_ = s.Store.ClearSessionFlags(ctx, keepSessionID, sqlite.FlagMustChangePW)
+		_ = s.Store.ClearSessionFlags(ctx, keepSessionID, sqlstore.FlagMustChangePW)
 	}
 	// Drop every cached identity for this user so revoked sessions can't
 	// keep authenticating off a warm cache, and so the surviving session
@@ -222,7 +222,7 @@ func (s *Service) ChangeOwnPassword(ctx context.Context, userID, keepSessionID, 
 
 // CreateLocalUser provisions a user record for the local identity source.
 // When mustChangePW is true the user is forced to rotate on first login.
-func (s *Service) CreateLocalUser(ctx context.Context, username, email, password, role, createdBy string, mustChangePW bool) (*sqlite.User, error) {
+func (s *Service) CreateLocalUser(ctx context.Context, username, email, password, role, createdBy string, mustChangePW bool) (*sqlstore.User, error) {
 	if !validRole(role) {
 		return nil, errors.New("invalid role")
 	}
@@ -234,7 +234,7 @@ func (s *Service) CreateLocalUser(ctx context.Context, username, email, password
 		return nil, err
 	}
 	now := time.Now().UTC()
-	u := &sqlite.User{
+	u := &sqlstore.User{
 		ID:             ulid.Make().String(),
 		Username:       username,
 		PasswordHash:   hash,
@@ -285,7 +285,7 @@ func (s *Service) AdminResetPassword(ctx context.Context, userID, keepSessionID,
 		return err
 	}
 	if keepSessionID != "" {
-		_ = s.Store.ClearSessionFlags(ctx, keepSessionID, sqlite.FlagMustChangePW)
+		_ = s.Store.ClearSessionFlags(ctx, keepSessionID, sqlstore.FlagMustChangePW)
 	}
 	s.Sessions.Cache.InvalidateUser(userID)
 	return nil

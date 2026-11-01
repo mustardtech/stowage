@@ -12,7 +12,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/proxyurl"
 	"github.com/stowage-dev/stowage/internal/s3proxy"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // OperatorSourceSnapshotter is the read-only side of s3proxy.KubernetesSource
@@ -28,7 +28,7 @@ type OperatorSourceSnapshotter interface {
 // are returned. The SQLite store is the same one used by the credential
 // CRUD handlers; reading directly avoids a second cache to keep in sync.
 type S3ProxyViewDeps struct {
-	Store          *sqlite.Store
+	Store          *sqlstore.Store
 	OperatorSource OperatorSourceSnapshotter
 	Logger         *slog.Logger
 	// PublicHostname / ProxyURL / Registry feed the URL hints rendered
@@ -135,7 +135,7 @@ func (d *S3ProxyViewDeps) handleListAnonymous(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": out})
 }
 
-func (d *S3ProxyViewDeps) sqliteCredToView(c *sqlite.S3Credential) s3CredViewDTO {
+func (d *S3ProxyViewDeps) sqliteCredToView(c *sqlstore.S3Credential) s3CredViewDTO {
 	out := s3CredViewDTO{
 		AccessKey:   c.AccessKey,
 		BackendID:   c.BackendID,
@@ -209,7 +209,7 @@ func (d *S3ProxyViewDeps) urls(backendID string, buckets []string) (string, map[
 	return base, out
 }
 
-func sqliteAnonToView(b *sqlite.S3AnonymousBinding) s3AnonViewDTO {
+func sqliteAnonToView(b *sqlstore.S3AnonymousBinding) s3AnonViewDTO {
 	out := s3AnonViewDTO{
 		BackendID:      b.BackendID,
 		Bucket:         b.Bucket,

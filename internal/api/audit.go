@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // AuditDeps wires the audit viewer endpoint to the SQLite store.
 type AuditDeps struct {
-	Store *sqlite.Store
+	Store *sqlstore.Store
 }
 
 type auditEventDTO struct {
@@ -32,7 +32,7 @@ type auditEventDTO struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
-func toAuditDTO(e *sqlite.AuditEvent) auditEventDTO {
+func toAuditDTO(e *sqlstore.AuditEvent) auditEventDTO {
 	return auditEventDTO{
 		ID:        e.ID,
 		Timestamp: e.Timestamp.UTC().Format(time.RFC3339),
@@ -52,9 +52,9 @@ func toAuditDTO(e *sqlite.AuditEvent) auditEventDTO {
 // parseAuditFilter reads filter values from the request's query string.
 // Empty fields are ignored. Unknown values fall back to defaults rather
 // than error so the URL stays forgiving.
-func parseAuditFilter(r *http.Request) sqlite.AuditFilter {
+func parseAuditFilter(r *http.Request) sqlstore.AuditFilter {
 	q := r.URL.Query()
-	f := sqlite.AuditFilter{
+	f := sqlstore.AuditFilter{
 		UserID:    q.Get("user"),
 		Action:    q.Get("action"),
 		BackendID: q.Get("backend"),

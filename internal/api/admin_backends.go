@@ -19,7 +19,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/backend"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // adminBackendDTO is what /api/admin/backends serves. It exposes more than
@@ -51,7 +51,7 @@ func (d *BackendDeps) handleAdminListBackends(w http.ResponseWriter, r *http.Req
 	// Index DB rows up front so we can adorn registry entries with their
 	// stored metadata (endpoint, region, …) and detect the disabled rows
 	// that aren't in the registry at all.
-	rowsByID := map[string]*sqlite.Backend{}
+	rowsByID := map[string]*sqlstore.Backend{}
 	if d.Store != nil {
 		rows, err := d.Store.ListBackends(r.Context())
 		if err != nil {
@@ -79,7 +79,7 @@ func (d *BackendDeps) handleAdminListBackends(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]any{"backends": out})
 }
 
-func fromRegistryEntry(e backend.Entry, row *sqlite.Backend) adminBackendDTO {
+func fromRegistryEntry(e backend.Entry, row *sqlstore.Backend) adminBackendDTO {
 	dto := adminBackendDTO{
 		ID:        e.Backend.ID(),
 		Name:      e.Backend.DisplayName(),
@@ -109,7 +109,7 @@ func fromRegistryEntry(e backend.Entry, row *sqlite.Backend) adminBackendDTO {
 	return dto
 }
 
-func fromStoredRow(row *sqlite.Backend) adminBackendDTO {
+func fromStoredRow(row *sqlstore.Backend) adminBackendDTO {
 	dto := adminBackendDTO{
 		ID:        row.ID,
 		Name:      row.Name,
@@ -129,10 +129,10 @@ func fromStoredRow(row *sqlite.Backend) adminBackendDTO {
 
 func (d *BackendDeps) handleAdminGetBackend(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "bid")
-	var row *sqlite.Backend
+	var row *sqlstore.Backend
 	if d.Store != nil {
 		got, err := d.Store.GetBackend(r.Context(), id)
-		if err != nil && !errors.Is(err, sqlite.ErrBackendNotFound) {
+		if err != nil && !errors.Is(err, sqlstore.ErrBackendNotFound) {
 			writeError(w, http.StatusInternalServerError, "internal", "could not load endpoint", "")
 			return
 		}
@@ -236,7 +236,7 @@ func (d *BackendDeps) handleAdminCreateBackend(w http.ResponseWriter, r *http.Re
 		pathStyle = *req.PathStyle
 	}
 	createdBy := actorID(r)
-	row := &sqlite.Backend{
+	row := &sqlstore.Backend{
 		ID:        req.ID,
 		Name:      valueOr(req.Name, req.ID),
 		Type:      req.Type,
@@ -267,7 +267,7 @@ func (d *BackendDeps) handleAdminCreateBackend(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := d.Store.CreateBackend(r.Context(), row); err != nil {
-		if errors.Is(err, sqlite.ErrBackendIDTaken) {
+		if errors.Is(err, sqlstore.ErrBackendIDTaken) {
 			writeError(w, http.StatusConflict, "id_taken", "an endpoint with this id already exists", "")
 			return
 		}
@@ -336,7 +336,7 @@ func (d *BackendDeps) handleAdminPatchBackend(w http.ResponseWriter, r *http.Req
 	}
 
 	row, err := d.Store.GetBackend(r.Context(), id)
-	if errors.Is(err, sqlite.ErrBackendNotFound) {
+	if errors.Is(err, sqlstore.ErrBackendNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "backend not found", "")
 		return
 	}
@@ -386,7 +386,7 @@ func (d *BackendDeps) handleAdminPatchBackend(w http.ResponseWriter, r *http.Req
 		cleartext = string(pt)
 	}
 
-	patch := sqlite.BackendPatch{
+	patch := sqlstore.BackendPatch{
 		Name:      req.Name,
 		Endpoint:  req.Endpoint,
 		Region:    req.Region,
@@ -414,7 +414,7 @@ func (d *BackendDeps) handleAdminPatchBackend(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := d.Store.UpdateBackend(r.Context(), id, patch); err != nil {
-		if errors.Is(err, sqlite.ErrBackendNotFound) {
+		if errors.Is(err, sqlstore.ErrBackendNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "backend not found", "")
 			return
 		}
@@ -497,7 +497,7 @@ func (d *BackendDeps) handleAdminDeleteBackend(w http.ResponseWriter, r *http.Re
 	}
 
 	err := d.Store.DeleteBackend(r.Context(), id)
-	if errors.Is(err, sqlite.ErrBackendNotFound) {
+	if errors.Is(err, sqlstore.ErrBackendNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "backend not found", "")
 		return
 	}
@@ -551,7 +551,7 @@ func (d *BackendDeps) handleAdminTestBackend(w http.ResponseWriter, r *http.Requ
 		pathStyle = *req.PathStyle
 	}
 	// Build a throw-away driver under a synthetic id; it's never registered.
-	throwaway := &sqlite.Backend{
+	throwaway := &sqlstore.Backend{
 		ID:        "test-connection",
 		Name:      "Test connection",
 		Type:      req.Type,

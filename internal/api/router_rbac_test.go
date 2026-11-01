@@ -20,7 +20,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/shares"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // rbacServer wires the same write-gate middleware NewRouter uses onto the
@@ -31,7 +31,7 @@ func rbacServer(t *testing.T) (*httptest.Server, *auth.Identity) {
 	t.Helper()
 	ctx := context.Background()
 
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "rbac.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "rbac.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}

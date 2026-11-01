@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 type ctxKey int
@@ -40,7 +40,7 @@ func (i *Identity) IsAdmin() bool { return i != nil && i.Role == "admin" }
 // user repo + static synth. Kept as an interface so layers don't depend on
 // service internals.
 type Resolver interface {
-	ResolveIdentity(ctx context.Context, sess *sqlite.Session) (Identity, error)
+	ResolveIdentity(ctx context.Context, sess *sqlstore.Session) (Identity, error)
 }
 
 // ErrIdentityInvalid is returned by Resolver when the session's user is

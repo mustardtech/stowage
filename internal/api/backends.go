@@ -26,7 +26,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/quotas"
 	"github.com/stowage-dev/stowage/internal/secrets"
 	"github.com/stowage-dev/stowage/internal/sizes"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // objectCopyBufPool keeps 32 KiB scratch buffers around for streaming object
@@ -53,7 +53,7 @@ type BackendDeps struct {
 	// Store and Sealer power the admin endpoint-management API. Both are
 	// required for /api/admin/backends; when nil those handlers report
 	// 503 secret_key_unset / 503 store_unavailable rather than panic.
-	Store  *sqlite.Store
+	Store  *sqlstore.Store
 	Sealer *secrets.Sealer
 
 	// Reloader, when non-nil, is invoked after mutations that touch the
@@ -64,7 +64,7 @@ type BackendDeps struct {
 
 	// BuildBackend lets tests plug in a memory backend instead of the
 	// production s3v4 driver. nil means "use s3v4".
-	BuildBackend func(ctx context.Context, row *sqlite.Backend, secretKey string) (backend.Backend, error)
+	BuildBackend func(ctx context.Context, row *sqlstore.Backend, secretKey string) (backend.Backend, error)
 
 	// bucketsCache memoises ListBuckets responses for a few seconds; lazily
 	// allocated so tests that don't pre-seed BackendDeps still work.
@@ -81,7 +81,7 @@ func (d *BackendDeps) buckets() *bucketsCache {
 // Honours BuildBackend when set; otherwise dispatches on Type to the
 // production s3v4 driver. The cleartext secret is held only for the
 // duration of this call.
-func (d *BackendDeps) driverFor(ctx context.Context, row *sqlite.Backend, secretKey string) (backend.Backend, error) {
+func (d *BackendDeps) driverFor(ctx context.Context, row *sqlstore.Backend, secretKey string) (backend.Backend, error) {
 	if d.BuildBackend != nil {
 		return d.BuildBackend(ctx, row, secretKey)
 	}

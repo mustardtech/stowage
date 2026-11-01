@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 const (
@@ -27,7 +27,7 @@ var (
 // SessionManager handles issuing, resolving, and revoking sessions. It is
 // the single choke-point for all auth modes.
 type SessionManager struct {
-	Store       *sqlite.Store
+	Store       *sqlstore.Store
 	Lifetime    time.Duration
 	IdleTimeout time.Duration
 	// CookieSecure controls the Secure flag on outbound cookies. Nil = auto
@@ -48,7 +48,7 @@ type SessionManager struct {
 
 // IssueSession creates a new session, persists it, and writes the session +
 // CSRF cookies onto w. Returns the session record.
-func (m *SessionManager) Issue(ctx context.Context, w http.ResponseWriter, r *http.Request, userID, source string, flags sqlite.SessionFlags) (*sqlite.Session, error) {
+func (m *SessionManager) Issue(ctx context.Context, w http.ResponseWriter, r *http.Request, userID, source string, flags sqlstore.SessionFlags) (*sqlstore.Session, error) {
 	sid, err := RandomToken()
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (m *SessionManager) Issue(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	now := time.Now().UTC()
-	sess := &sqlite.Session{
+	sess := &sqlstore.Session{
 		ID:             sid,
 		UserID:         userID,
 		IdentitySource: source,
@@ -82,7 +82,7 @@ func (m *SessionManager) Issue(ctx context.Context, w http.ResponseWriter, r *ht
 // Resolve returns the session and its cookie bits, refreshing last_seen_at
 // and extending expiry. It returns ErrNoSession if no cookie is present and
 // ErrSessionExpired if the session has aged out.
-func (m *SessionManager) Resolve(ctx context.Context, w http.ResponseWriter, r *http.Request) (*sqlite.Session, error) {
+func (m *SessionManager) Resolve(ctx context.Context, w http.ResponseWriter, r *http.Request) (*sqlstore.Session, error) {
 	c, err := r.Cookie(SessionCookieName)
 	if err != nil || c.Value == "" {
 		return nil, ErrNoSession
@@ -129,7 +129,7 @@ func (m *SessionManager) Revoke(ctx context.Context, w http.ResponseWriter, r *h
 	return nil
 }
 
-func (m *SessionManager) writeCookies(w http.ResponseWriter, r *http.Request, sess *sqlite.Session) {
+func (m *SessionManager) writeCookies(w http.ResponseWriter, r *http.Request, sess *sqlstore.Session) {
 	secure := m.secureFlag(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,

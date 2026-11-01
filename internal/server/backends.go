@@ -13,7 +13,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend/s3v4"
 	"github.com/stowage-dev/stowage/internal/config"
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // buildRegistry resolves each backend config into a concrete driver and
@@ -41,7 +41,7 @@ func buildRegistry(ctx context.Context, cfgs []config.BackendConfig) (*backend.R
 // Fails fast if any row carries a sealed secret but no Sealer was loaded —
 // that's an operator config error (STOWAGE_SECRET_KEY missing) and starting
 // silently would orphan every UI-managed endpoint.
-func hydrateFromStore(ctx context.Context, reg *backend.Registry, store *sqlite.Store, sealer *secrets.Sealer, logger *slog.Logger) error {
+func hydrateFromStore(ctx context.Context, reg *backend.Registry, store *sqlstore.Store, sealer *secrets.Sealer, logger *slog.Logger) error {
 	if store == nil {
 		return nil
 	}
@@ -73,7 +73,7 @@ func hydrateFromStore(ctx context.Context, reg *backend.Registry, store *sqlite.
 	return nil
 }
 
-func unsealSecret(row *sqlite.Backend, sealer *secrets.Sealer) (string, error) {
+func unsealSecret(row *sqlstore.Backend, sealer *secrets.Sealer) (string, error) {
 	if len(row.SecretKeyEnc) == 0 {
 		return "", nil
 	}
@@ -87,7 +87,7 @@ func unsealSecret(row *sqlite.Backend, sealer *secrets.Sealer) (string, error) {
 	return string(pt), nil
 }
 
-func buildBackendFromStored(ctx context.Context, row *sqlite.Backend, secret string) (backend.Backend, error) {
+func buildBackendFromStored(ctx context.Context, row *sqlstore.Backend, secret string) (backend.Backend, error) {
 	switch row.Type {
 	case "s3v4", "":
 		return s3v4.New(ctx, s3v4.Config{

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/backend"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // ErrQuotaExceeded is returned by CheckUpload when the projected post-write
@@ -45,7 +45,7 @@ type Status struct {
 // scanner against the live backend.
 type Service struct {
 	Limits   LimitSource
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Backends *backend.Registry
 	Logger   *slog.Logger
 
@@ -85,7 +85,7 @@ func (s *Service) ReloadLimits(ctx context.Context) error {
 // lookup (typically a MergedLimitSource fronting both SQLite and K8s);
 // store is still needed for the admin CRUD path and as the scanner's
 // canonical writer for usage. logger may be nil.
-func New(limits LimitSource, store *sqlite.Store, registry *backend.Registry, logger *slog.Logger) *Service {
+func New(limits LimitSource, store *sqlstore.Store, registry *backend.Registry, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}

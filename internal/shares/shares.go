@@ -24,7 +24,7 @@ import (
 
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/backend"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // Typed errors surfaced by Resolve. Handlers map these to HTTP statuses.
@@ -43,7 +43,7 @@ var (
 // it composes the SQLite repo, backend registry, and (when wired) an audit
 // recorder.
 type Service struct {
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Backends *backend.Registry
 	Logger   *slog.Logger
 	// Clock is injectable so tests don't have to wait real time for expiry
@@ -89,7 +89,7 @@ func (p CreateParams) validate(now time.Time) error {
 // Create mints a new share. The object is HEAD-checked up front so typos
 // don't yield a broken link — we'd rather fail at create time than on first
 // recipient click.
-func (s *Service) Create(ctx context.Context, createdBy string, p CreateParams) (*sqlite.Share, error) {
+func (s *Service) Create(ctx context.Context, createdBy string, p CreateParams) (*sqlstore.Share, error) {
 	now := s.now()
 	if err := p.validate(now); err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func (s *Service) Create(ctx context.Context, createdBy string, p CreateParams) 
 		disposition = "attachment"
 	}
 
-	sh := &sqlite.Share{
+	sh := &sqlstore.Share{
 		ID:           ulid.Make().String(),
 		BackendID:    p.BackendID,
 		Bucket:       p.Bucket,
@@ -144,7 +144,7 @@ func (s *Service) Create(ctx context.Context, createdBy string, p CreateParams) 
 		if err == nil {
 			return sh, nil
 		}
-		if !errors.Is(err, sqlite.ErrShareCodeTaken) {
+		if !errors.Is(err, sqlstore.ErrShareCodeTaken) {
 			return nil, err
 		}
 	}
@@ -158,10 +158,10 @@ func (s *Service) Create(ctx context.Context, createdBy string, p CreateParams) 
 //
 // Callers should NOT use Lookup as a way to bypass password protection on
 // fresh requests — only as a continuation after a successful Resolve.
-func (s *Service) Lookup(ctx context.Context, code string) (*sqlite.Share, error) {
+func (s *Service) Lookup(ctx context.Context, code string) (*sqlstore.Share, error) {
 	sh, err := s.Store.GetShareByCode(ctx, code)
 	if err != nil {
-		if errors.Is(err, sqlite.ErrShareNotFound) {
+		if errors.Is(err, sqlstore.ErrShareNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -187,7 +187,7 @@ func (s *Service) Lookup(ctx context.Context, code string) (*sqlite.Share, error
 //
 // password is ignored when the share is unprotected. Pass "" for the first
 // probe — if ErrPasswordRequired is returned the caller should prompt.
-func (s *Service) Resolve(ctx context.Context, code, password string) (*sqlite.Share, error) {
+func (s *Service) Resolve(ctx context.Context, code, password string) (*sqlstore.Share, error) {
 	sh, err := s.Lookup(ctx, code)
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func (s *Service) RecordAccess(ctx context.Context, id string) error {
 func (s *Service) Revoke(ctx context.Context, actingUserID, actingRole, shareID string) error {
 	sh, err := s.Store.GetShareByID(ctx, shareID)
 	if err != nil {
-		if errors.Is(err, sqlite.ErrShareNotFound) {
+		if errors.Is(err, sqlstore.ErrShareNotFound) {
 			return ErrNotFound
 		}
 		return err
@@ -230,19 +230,19 @@ func (s *Service) Revoke(ctx context.Context, actingUserID, actingRole, shareID 
 }
 
 // ListMine returns shares created by the given user, newest first.
-func (s *Service) ListMine(ctx context.Context, userID string) ([]*sqlite.Share, error) {
+func (s *Service) ListMine(ctx context.Context, userID string) ([]*sqlstore.Share, error) {
 	return s.Store.ListSharesByUser(ctx, userID)
 }
 
 // ListAll returns every share in the system. Admin-only at the handler layer.
-func (s *Service) ListAll(ctx context.Context) ([]*sqlite.Share, error) {
+func (s *Service) ListAll(ctx context.Context) ([]*sqlstore.Share, error) {
 	return s.Store.ListAllShares(ctx)
 }
 
 // OpenTarget fetches the object body for a resolved share. rng forwards
 // an HTTP Range to the backend so video / audio elements can stream
 // without buffering the whole object. Pass nil for a full-body read.
-func (s *Service) OpenTarget(ctx context.Context, sh *sqlite.Share, rng *backend.Range) (backend.ObjectReader, error) {
+func (s *Service) OpenTarget(ctx context.Context, sh *sqlstore.Share, rng *backend.Range) (backend.ObjectReader, error) {
 	b, ok := s.Backends.Get(sh.BackendID)
 	if !ok {
 		return nil, ErrBackendGone
@@ -252,7 +252,7 @@ func (s *Service) OpenTarget(ctx context.Context, sh *sqlite.Share, rng *backend
 
 // HeadTarget fetches metadata for a resolved share's object — used by the
 // landing page to decide how to preview it without reading the body.
-func (s *Service) HeadTarget(ctx context.Context, sh *sqlite.Share) (backend.ObjectInfo, error) {
+func (s *Service) HeadTarget(ctx context.Context, sh *sqlstore.Share) (backend.ObjectInfo, error) {
 	b, ok := s.Backends.Get(sh.BackendID)
 	if !ok {
 		return backend.ObjectInfo{}, ErrBackendGone

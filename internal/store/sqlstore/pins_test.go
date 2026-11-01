@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"context"
@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func openTestStore(t *testing.T) *sqlite.Store {
+func openTestStore(t *testing.T) *sqlstore.Store {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "pins.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "pins.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestPinInsertListDelete(t *testing.T) {
 	ctx := context.Background()
 
 	for _, b := range []string{"alpha", "beta", "alpha"} {
-		err := store.InsertPin(ctx, &sqlite.BucketPin{
+		err := store.InsertPin(ctx, &sqlstore.BucketPin{
 			UserID: "u1", BackendID: b, Bucket: "data",
 			CreatedAt: time.Now().UTC(),
 		})
@@ -58,7 +58,7 @@ func TestPinIsolatedByUser(t *testing.T) {
 	ctx := context.Background()
 
 	for _, u := range []string{"u1", "u2"} {
-		_ = store.InsertPin(ctx, &sqlite.BucketPin{
+		_ = store.InsertPin(ctx, &sqlstore.BucketPin{
 			UserID: u, BackendID: "alpha", Bucket: "shared",
 			CreatedAt: time.Now().UTC(),
 		})

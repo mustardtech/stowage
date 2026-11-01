@@ -20,16 +20,16 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // adminServer wires the /api/admin/backends routes against a real SQLite
 // store + sealer, with a memory-backed driver builder so tests don't need
 // a live S3. Returns the live registry so individual tests can pre-seed it
 // (e.g. with a config-sourced entry to verify the read-only gate).
-func adminServer(t *testing.T) (*httptest.Server, *backend.Registry, *sqlite.Store) {
+func adminServer(t *testing.T) (*httptest.Server, *backend.Registry, *sqlstore.Store) {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "admin.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "admin.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -47,7 +47,7 @@ func adminServer(t *testing.T) (*httptest.Server, *backend.Registry, *sqlite.Sto
 		Audit:    audit.Noop{},
 		Store:    store,
 		Sealer:   sealer,
-		BuildBackend: func(_ context.Context, row *sqlite.Backend, _ string) (backend.Backend, error) {
+		BuildBackend: func(_ context.Context, row *sqlstore.Backend, _ string) (backend.Backend, error) {
 			return memory.New(row.ID, row.Name), nil
 		},
 	}
@@ -212,7 +212,7 @@ func TestAdminBackendsList_MergesRegistryAndStore(t *testing.T) {
 	assertStatus(t, adminCreate(t, srv, validCreateBody), 201)
 	// One DB entry that's disabled (store only, never registered).
 	now := time.Now().UTC()
-	disabled := &sqlite.Backend{
+	disabled := &sqlstore.Backend{
 		ID: "disabled", Name: "Disabled", Type: "s3v4",
 		Endpoint: "https://x", Enabled: false,
 		CreatedAt: now, UpdatedAt: now,
@@ -394,7 +394,7 @@ func TestAdminBackendsTest_ProbesWithoutPersisting(t *testing.T) {
 }
 
 func TestAdminBackends_NoSealerReturns503(t *testing.T) {
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "nosealer.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "nosealer.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}

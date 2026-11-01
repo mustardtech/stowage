@@ -16,12 +16,12 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func newStore(t *testing.T) *sqlite.Store {
+func newStore(t *testing.T) *sqlstore.Store {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "hydrate.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "hydrate.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -40,14 +40,14 @@ func newSealer(t *testing.T) *secrets.Sealer {
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func insertRow(t *testing.T, store *sqlite.Store, sealer *secrets.Sealer, id string, enabled bool) {
+func insertRow(t *testing.T, store *sqlstore.Store, sealer *secrets.Sealer, id string, enabled bool) {
 	t.Helper()
 	enc, err := sealer.Seal([]byte("SECRETKEY"))
 	if err != nil {
 		t.Fatalf("seal: %v", err)
 	}
 	now := time.Now().UTC()
-	row := &sqlite.Backend{
+	row := &sqlstore.Backend{
 		ID:           id,
 		Name:         id,
 		Type:         "s3v4",
@@ -157,7 +157,7 @@ func TestHydrate_TamperedCiphertextErrors(t *testing.T) {
 	// tag region forces an authentication failure.
 	row, _ := store.GetBackend(context.Background(), "alpha")
 	row.SecretKeyEnc[len(row.SecretKeyEnc)-1] ^= 0x01
-	patch := sqlite.BackendPatch{}
+	patch := sqlstore.BackendPatch{}
 	patch.SetSecret(row.SecretKeyEnc)
 	if err := store.UpdateBackend(context.Background(), "alpha", patch); err != nil {
 		t.Fatalf("update: %v", err)

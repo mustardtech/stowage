@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // SQLiteSource is the dashboard-managed credential source. The proxy hot
@@ -22,7 +22,7 @@ import (
 // (called by the admin handlers after CRUD) and on a fixed-interval ticker
 // to bound staleness if the admin path is bypassed.
 type SQLiteSource struct {
-	store  *sqlite.Store
+	store  *sqlstore.Store
 	sealer *secrets.Sealer
 	logger *slog.Logger
 
@@ -46,7 +46,7 @@ func (s *SQLiteSource) SetOnReload(fn func()) {
 // NewSQLiteSource constructs a SQLiteSource. sealer is required — without
 // it secret_key_enc cannot be opened and no credential is usable. The
 // returned source starts empty; call Reload before serving traffic.
-func NewSQLiteSource(store *sqlite.Store, sealer *secrets.Sealer, logger *slog.Logger) *SQLiteSource {
+func NewSQLiteSource(store *sqlstore.Store, sealer *secrets.Sealer, logger *slog.Logger) *SQLiteSource {
 	if logger == nil {
 		logger = slog.Default()
 	}

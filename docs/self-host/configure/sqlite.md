@@ -45,7 +45,7 @@ consistent snapshot.
 ## Migrations
 
 The schema lives at
-[`internal/store/sqlite/migrations.go`](https://github.com/stowage-dev/stowage/blob/main/internal/store/sqlite/migrations.go)
+[`internal/store/sqlstore/migrations.go`](https://github.com/stowage-dev/stowage/blob/main/internal/store/sqlstore/migrations.go)
 as an append-only ordered list. Stowage applies pending migrations on
 every startup and records progress in a `schema_migrations` table.
 

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"context"
@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func newBucketCORS(backend, bucket, rules string) *sqlite.S3BucketCORS {
+func newBucketCORS(backend, bucket, rules string) *sqlstore.S3BucketCORS {
 	now := time.Now().UTC()
-	return &sqlite.S3BucketCORS{
+	return &sqlstore.S3BucketCORS{
 		BackendID: backend,
 		Bucket:    bucket,
 		Rules:     rules,
@@ -48,7 +48,7 @@ func TestS3BucketCORS_UpsertReplaces(t *testing.T) {
 func TestS3BucketCORS_GetMissing(t *testing.T) {
 	store := openTestStore(t)
 	_, err := store.GetS3BucketCORS(context.Background(), "minio", "no-such")
-	if !errors.Is(err, sqlite.ErrS3BucketCORSNotFound) {
+	if !errors.Is(err, sqlstore.ErrS3BucketCORSNotFound) {
 		t.Fatalf("err = %v, want ErrS3BucketCORSNotFound", err)
 	}
 }
@@ -63,7 +63,7 @@ func TestS3BucketCORS_Delete(t *testing.T) {
 	if err := store.DeleteS3BucketCORS(ctx, "minio", "uploads"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := store.DeleteS3BucketCORS(ctx, "minio", "uploads"); !errors.Is(err, sqlite.ErrS3BucketCORSNotFound) {
+	if err := store.DeleteS3BucketCORS(ctx, "minio", "uploads"); !errors.Is(err, sqlstore.ErrS3BucketCORSNotFound) {
 		t.Fatalf("second delete should be not-found, got %v", err)
 	}
 }
@@ -71,7 +71,7 @@ func TestS3BucketCORS_Delete(t *testing.T) {
 func TestS3BucketCORS_ListOrdered(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
-	rows := []*sqlite.S3BucketCORS{
+	rows := []*sqlstore.S3BucketCORS{
 		newBucketCORS("minio", "uploads", `[]`),
 		newBucketCORS("garage", "logs", `[]`),
 		newBucketCORS("minio", "downloads", `[]`),

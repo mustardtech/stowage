@@ -19,7 +19,7 @@ import (
 	opmgr "github.com/stowage-dev/stowage/internal/operator/manager"
 	"github.com/stowage-dev/stowage/internal/quickstart"
 	"github.com/stowage-dev/stowage/internal/server"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 func main() {
@@ -208,7 +208,7 @@ func runCreateAdmin(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	store, err := sqlite.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.Open(ctx, cfg.DB.SQLite.Path)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}

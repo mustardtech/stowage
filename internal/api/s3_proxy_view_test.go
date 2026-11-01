@@ -18,7 +18,7 @@ import (
 
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/s3proxy"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // fakeOperatorSnapshotter is a static stand-in for a live K8s informer.
@@ -37,7 +37,7 @@ func (f *fakeOperatorSnapshotter) SnapshotAnonymousBindings() []*s3proxy.Anonymo
 	return f.anon
 }
 
-func mountProxyView(t *testing.T, store *sqlite.Store, op OperatorSourceSnapshotter) *httptest.Server {
+func mountProxyView(t *testing.T, store *sqlstore.Store, op OperatorSourceSnapshotter) *httptest.Server {
 	t.Helper()
 	deps := &S3ProxyViewDeps{Store: store, OperatorSource: op, Logger: slog.Default()}
 	r := chi.NewRouter()
@@ -58,13 +58,13 @@ func mountProxyView(t *testing.T, store *sqlite.Store, op OperatorSourceSnapshot
 
 func TestS3ProxyView_MergesSqliteAndOperatorCredentials(t *testing.T) {
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "view.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "view.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	row := &sqlite.S3Credential{
+	row := &sqlstore.S3Credential{
 		AccessKey:    "AKIAUI",
 		SecretKeyEnc: []byte{0x01},
 		BackendID:    "minio-prod",
@@ -139,13 +139,13 @@ func TestS3ProxyView_MergesSqliteAndOperatorCredentials(t *testing.T) {
 
 func TestS3ProxyView_AnonymousMerges(t *testing.T) {
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "view.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "view.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	if err := store.UpsertS3AnonymousBinding(ctx, &sqlite.S3AnonymousBinding{
+	if err := store.UpsertS3AnonymousBinding(ctx, &sqlstore.S3AnonymousBinding{
 		BackendID:      "minio-prod",
 		Bucket:         "ui-public",
 		Mode:           "ReadOnly",
