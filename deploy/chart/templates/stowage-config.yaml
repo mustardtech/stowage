@@ -30,6 +30,7 @@
 {{- $_ := set $base "operator" (dict
     "enabled"       true
     "ops_namespace" .Release.Namespace
+    "leader_election" .Values.operator.leaderElection
     "proxy_url"     (include "stowage.proxyEndpointURL" .)
     "webhook"       (dict
         "enabled" .Values.webhook.enabled

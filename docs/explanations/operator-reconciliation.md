@@ -125,9 +125,12 @@ mount the consumer Secret.
 
 ## Concurrency model
 
-- **Single replica.** The chart deploys 1 operator Pod. Leader
-  election is supported by controller-runtime but defaults to off
-  because a single replica is the supported topology today.
+- **Leader election.** The chart deploys 1 operator Pod but turns on
+  controller-runtime leader election (`operator.leaderElection`, a
+  Lease in the release namespace), so a rolling update or a second
+  replica never double-reconciles: only the Lease holder runs the
+  reconcilers; the rest stand by and take over when it exits. Outside
+  the chart it is off unless `operator.leader_election: true` is set.
 - **Per-claim ordering.** The work-queue serialises reconciles per
   object. Two changes to the same claim are processed in order.
 - **Inter-claim parallelism.** Different claims reconcile in

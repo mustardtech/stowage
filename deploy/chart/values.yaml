@@ -112,6 +112,12 @@ stowage:
 # the dashboard + S3 proxy and Kubernetes RBAC stays namespace-scoped.
 operator:
   enabled: true
+  # Leader election for the embedded operator manager. On by default so a
+  # rolling update or a second operator replica never double-reconciles:
+  # only the Lease holder (coordination.k8s.io Lease in the release
+  # namespace) reconciles, the rest stand by. The ClusterRole grants the
+  # Lease rule. Set false to run exactly as before (no Lease, no RBAC).
+  leaderElection: true
 
 networkPolicy:
   enabled: false

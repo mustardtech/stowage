@@ -28,8 +28,9 @@ Stowage is backed by SQLite on an RWO volume and an in-process
 rate-limiter / audit batcher / quota counter. Running a second pod
 would race on the database, double-execute reconciles, and split
 the rate-limit + audit state. The chart hardcodes `replicas: 1`
-with `strategy: Recreate` and the operator manager runs without
-leader election. **Multi-replica is not supported and is not on
+with `strategy: Recreate`; the operator manager does take a
+leader-election Lease (`operator.leaderElection`, on by default) so a
+rolling update never double-reconciles. **Multi-replica is not supported and is not on
 the roadmap** — if you need HA, deploy a second stowage cluster
 in a separate namespace or cluster and point at a different
 upstream.

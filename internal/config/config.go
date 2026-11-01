@@ -46,8 +46,17 @@ type OperatorConfig struct {
 	OpsNamespace string `yaml:"ops_namespace"`
 	// ProxyURL is the in-cluster URL of the stowage S3 proxy. The operator
 	// embeds it in consumer Secrets so workloads know where to send traffic.
-	ProxyURL string                `yaml:"proxy_url"`
-	Webhook  OperatorWebhookConfig `yaml:"webhook"`
+	ProxyURL string `yaml:"proxy_url"`
+	// LeaderElection turns on controller-runtime leader election so several
+	// operator replicas can run at once (rolling updates, HA). Exactly one
+	// holds the Lease and reconciles; the others wait. Off by default so a
+	// single-binary deployment without coordination.k8s.io RBAC keeps
+	// starting; the Helm chart turns it on and grants the Lease rule.
+	LeaderElection bool `yaml:"leader_election"`
+	// LeaderElectionID names the Lease object in ops_namespace. Empty uses
+	// "stowage-operator.broker.stowage.io".
+	LeaderElectionID string                `yaml:"leader_election_id"`
+	Webhook          OperatorWebhookConfig `yaml:"webhook"`
 }
 
 type OperatorWebhookConfig struct {
