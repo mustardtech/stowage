@@ -48,10 +48,18 @@ const auditCols = `id, ts, user_id, action, backend_id, bucket, object_key,
 // InsertAuditEvent appends an event. Caller sets Timestamp + Action;
 // everything else is optional.
 func (s *Store) InsertAuditEvent(ctx context.Context, e *AuditEvent) error {
-	_, err := s.DB.ExecContext(ctx, auditInsertSQL,
-		e.Timestamp, e.UserID, e.Action, e.BackendID, e.Bucket, e.ObjectKey,
-		e.RequestID, e.IP, e.UserAgent, e.Status, e.DetailJSON)
+	_, err := s.DB.ExecContext(ctx, auditInsertSQL, e.insertArgs()...)
 	return err
+}
+
+// insertArgs is the parameter list for auditInsertSQL, with every text
+// field made valid UTF-8 (see validText).
+func (e *AuditEvent) insertArgs() []any {
+	return []any{
+		e.Timestamp, validNullText(e.UserID), validText(e.Action), validNullText(e.BackendID),
+		validNullText(e.Bucket), validNullText(e.ObjectKey), validNullText(e.RequestID),
+		validNullText(e.IP), validNullText(e.UserAgent), validText(e.Status), validNullText(e.DetailJSON),
+	}
 }
 
 // InsertAuditEvents appends a slice of events in a single transaction.
@@ -71,10 +79,7 @@ func (s *Store) InsertAuditEvents(ctx context.Context, events []*AuditEvent) err
 		return err
 	}
 	for _, e := range events {
-		if _, err := stmt.ExecContext(ctx,
-			e.Timestamp, e.UserID, e.Action, e.BackendID, e.Bucket, e.ObjectKey,
-			e.RequestID, e.IP, e.UserAgent, e.Status, e.DetailJSON,
-		); err != nil {
+		if _, err := stmt.ExecContext(ctx, e.insertArgs()...); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
 			return err
