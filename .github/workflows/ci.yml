@@ -17,6 +17,19 @@ jobs:
   go:
     name: Go (vet, test, staticcheck)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: stowage
+          POSTGRES_PASSWORD: stowage
+          POSTGRES_DB: stowage_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stowage"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -38,6 +51,13 @@ jobs:
 
       - name: go test
         run: go test -race ./...
+
+      - name: go test (store against Postgres)
+        # The whole sqlstore suite again, with every test on its own schema
+        # in the service container, so both dialects stay green.
+        env:
+          STOWAGE_TEST_POSTGRES_DSN: postgres://stowage:stowage@localhost:5432/stowage_test?sslmode=disable
+        run: go test -race -count=1 ./internal/store/sqlstore/...
 
       - name: staticcheck
         # `go run honnef.co/go/tools/cmd/staticcheck@latest` downgrades the

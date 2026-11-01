@@ -26,6 +26,18 @@ resources:
   requests: {cpu: 50m, memory: 128Mi}
   limits:   {cpu: 500m, memory: 1Gi}
 
+# Persistence. sqlite (default) keeps the single-replica layout below: one
+# file on the RWO volume. postgres points every stowage process at a shared
+# database (the multi-replica option); the DSN comes from an existing Secret
+# and no volume is rendered.
+db:
+  driver: sqlite
+  postgres:
+    # Secret holding the libpq URL, e.g. postgres://user:pass@host:5432/stowage?sslmode=require
+    existingSecret: ""
+    dsnKey: dsn
+    maxOpenConns: 16
+
 # Persistent volume that backs the SQLite store. Stowage runs as a single
 # replica (SQLite + in-process limiter), so RWO is sufficient.
 storage:

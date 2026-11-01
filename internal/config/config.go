@@ -25,6 +25,7 @@ type Config struct {
 	Audit     AuditConfig     `yaml:"audit"`
 }
 
+
 // OperatorConfig opts the binary into running the embedded controller-runtime
 // manager that reconciles S3Backend / BucketClaim CRs and serves their
 // admission webhooks. Disabled by default — opting in requires a working
@@ -193,8 +194,20 @@ type RateLimitConfig struct {
 }
 
 type DBConfig struct {
-	Driver string       `yaml:"driver"` // "sqlite" (default) | "postgres"
-	SQLite SQLiteConfig `yaml:"sqlite"`
+	Driver   string         `yaml:"driver"` // "sqlite" (default) | "postgres"
+	SQLite   SQLiteConfig   `yaml:"sqlite"`
+	Postgres PostgresConfig `yaml:"postgres"`
+}
+
+// PostgresConfig is the shared-database option: any number of stowage
+// processes (dashboard, proxies, operator) may open the same database.
+type PostgresConfig struct {
+	// DSN is a libpq URL (postgres://user:pass@host:5432/db?sslmode=require)
+	// or key=value string. Prefer the STOWAGE_POSTGRES_DSN environment
+	// variable so the password never lands in the config file.
+	DSN string `yaml:"dsn"`
+	// MaxOpenConns bounds the connection pool. 0 = 16.
+	MaxOpenConns int `yaml:"max_open_conns"`
 }
 
 type SQLiteConfig struct {
@@ -387,6 +400,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("STOWAGE_SQLITE_PATH"); v != "" {
 		cfg.DB.SQLite.Path = v
 	}
+	if v := os.Getenv("STOWAGE_DB_DRIVER"); v != "" {
+		cfg.DB.Driver = v
+	}
+	if v := os.Getenv("STOWAGE_POSTGRES_DSN"); v != "" {
+		cfg.DB.Postgres.DSN = v
+	}
 	if v := os.Getenv("STOWAGE_SECRET_KEY_FILE"); v != "" {
 		cfg.Server.SecretKeyFile = v
 	}
@@ -412,7 +431,9 @@ func (c Config) validate() error {
 			return fmt.Errorf("db.sqlite.path is required when driver is sqlite")
 		}
 	case "postgres":
-		return fmt.Errorf("db.driver %q not yet implemented", c.DB.Driver)
+		if strings.TrimSpace(c.DB.Postgres.DSN) == "" {
+			return fmt.Errorf("db.postgres.dsn (or STOWAGE_POSTGRES_DSN) is required when driver is postgres")
+		}
 	default:
 		return fmt.Errorf("db.driver %q unknown", c.DB.Driver)
 	}

@@ -5,6 +5,7 @@ package sqlstore_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,6 +15,9 @@ import (
 
 func openTestStore(t *testing.T) *sqlstore.Store {
 	t.Helper()
+	if dsn := os.Getenv("STOWAGE_TEST_POSTGRES_DSN"); dsn != "" {
+		return openTestPostgres(t, dsn)
+	}
 	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "pins.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)

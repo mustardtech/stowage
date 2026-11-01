@@ -207,7 +207,8 @@ func translateS3CredErr(err error) error {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "UNIQUE") && strings.Contains(msg, "s3_credentials.access_key"),
-		strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "s3_credentials"):
+		strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "s3_credentials"),
+		strings.Contains(msg, "s3_credentials_pkey"): // Postgres names the constraint
 		return ErrS3AccessKeyTaken
 	default:
 		return fmt.Errorf("s3_credentials: %w", err)

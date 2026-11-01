@@ -205,7 +205,8 @@ func translateBackendErr(err error) error {
 	switch {
 	case strings.Contains(msg, "UNIQUE") && strings.Contains(msg, "backends.id"):
 		return ErrBackendIDTaken
-	case strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "backends"):
+	case strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "backends"),
+		strings.Contains(msg, "backends_pkey"): // Postgres names the constraint
 		return ErrBackendIDTaken
 	default:
 		return fmt.Errorf("backends: %w", err)

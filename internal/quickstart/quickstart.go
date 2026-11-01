@@ -420,7 +420,7 @@ func buildConfig(opts Options, sqlitePath, accessEnv, secretEnv string) config.C
 }
 
 func bootstrapAdmin(ctx context.Context, cfg config.Config, username, password string, logger *slog.Logger) error {
-	store, err := sqlstore.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.OpenConfig(ctx, cfg.DB)
 	if err != nil {
 		return err
 	}

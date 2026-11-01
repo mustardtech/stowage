@@ -46,6 +46,8 @@ func run(args []string) error {
 		return runCreateAdmin(rest)
 	case "hash-password":
 		return runHashPassword(rest)
+	case "migrate":
+		return runMigrate(rest)
 	case "-h", "--help", "help":
 		printUsage()
 		return nil
@@ -64,6 +66,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  quickstart      Download MinIO into ./data and run stowage against it")
 	fmt.Fprintln(os.Stderr, "  create-admin    Create the first local admin user")
 	fmt.Fprintln(os.Stderr, "  hash-password   Print an argon2id hash for a password")
+	fmt.Fprintln(os.Stderr, "  migrate         Copy a SQLite store into an empty PostgreSQL database")
 	fmt.Fprintln(os.Stderr, "  help            Show this message")
 }
 
@@ -94,7 +97,7 @@ func runServe(args []string) error {
 		"listen", cfg.Server.Listen,
 		"auth_modes", cfg.Auth.Modes,
 		"backends", len(cfg.Backends),
-		"db", cfg.DB.SQLite.Path,
+		"db", describeDB(cfg.DB),
 	)
 	if err := srv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
@@ -208,7 +211,7 @@ func runCreateAdmin(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	store, err := sqlstore.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.OpenConfig(ctx, cfg.DB)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -255,4 +258,15 @@ func newLogger(c config.LogConfig) *slog.Logger {
 		h = slog.NewJSONHandler(os.Stdout, opts)
 	}
 	return slog.New(h)
+}
+
+// describeDB renders the store target for the startup log line without
+// ever printing a Postgres DSN (it may carry a password).
+func describeDB(cfg config.DBConfig) string {
+	switch cfg.Driver {
+	case "", "sqlite":
+		return "sqlite:" + cfg.SQLite.Path
+	default:
+		return cfg.Driver
+	}
 }

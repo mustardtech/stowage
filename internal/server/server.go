@@ -54,7 +54,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, error) {
-	store, err := sqlstore.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.OpenConfig(ctx, cfg.DB)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
@@ -196,7 +196,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, 
 	}
 
 	mtx := metrics.New()
-	mtx.Prom = metrics.NewProm(cfg.DB.SQLite.Path)
+	mtx.Prom = metrics.NewProm(sqliteFileForMetrics(cfg.DB))
 
 	// Build the S3 proxy sources up front (when enabled) so the router's
 	// admin handlers can share them with the embedded proxy. The rest of
@@ -674,4 +674,15 @@ func containsMode(modes []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// sqliteFileForMetrics returns the SQLite file to size-gauge, or "" when
+// the store is Postgres (no file to stat; the gauge is simply absent).
+func sqliteFileForMetrics(cfg config.DBConfig) string {
+	switch cfg.Driver {
+	case "", "sqlite":
+		return cfg.SQLite.Path
+	default:
+		return ""
+	}
 }

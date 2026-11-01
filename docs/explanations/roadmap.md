@@ -88,15 +88,11 @@ single-replica positioning.
 
 ## Postgres backend
 
-`db.driver: postgres` is reserved in the config schema and validation
-explicitly rejects it. Implementing it requires:
-
-- A second `Store` implementation under
-  `internal/store/postgres/`.
-- Cross-driver test coverage for the schema migrations.
-- Migration tooling for users moving from SQLite to Postgres.
-
-Not on the v1.0 roadmap.
+Done: `db.driver: postgres` opens a shared PostgreSQL database through
+the same store package (one query set, a dialect switch for placeholders
+and DDL — see `internal/store/sqlstore/dialect.go`). The store tests run
+against both engines in CI. See
+[docs/self-host/configure/postgres.md](../self-host/configure/postgres.md).
 
 ## Outbound signer replacement
 
