@@ -71,6 +71,12 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// A Retain delete never contacts the backend, so a dead or missing backend
+	// must not strand the claim in Terminating.
+	if !claim.DeletionTimestamp.IsZero() && claim.Spec.DeletionPolicy != brokerv1a1.DeletionPolicyDelete {
+		return r.handleDelete(ctx, logger, &claim, nil)
+	}
+
 	var bck brokerv1a1.S3Backend
 	if err := r.Get(ctx, types.NamespacedName{Name: claim.Spec.BackendRef.Name}, &bck); err != nil {
 		if apierrors.IsNotFound(err) {
