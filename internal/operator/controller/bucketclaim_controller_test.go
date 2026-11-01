@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -136,5 +137,91 @@ func countEvents(r *record.FakeRecorder, want string) int {
 		default:
 			return n
 		}
+	}
+}
+
+// TestBucketClaimReconcile_RetainDeleteWithoutUsableBackend pins that a Retain
+// claim finalizes when its backend is unreachable or gone: the delete never
+// contacts the backend. A Delete claim must keep waiting, or its bucket leaks.
+func TestBucketClaimReconcile_RetainDeleteWithoutUsableBackend(t *testing.T) {
+	const opsNS = "stowage-system"
+	notReady := &brokerv1a1.S3Backend{
+		ObjectMeta: metav1.ObjectMeta{Name: "dead"},
+		Status: brokerv1a1.S3BackendStatus{Conditions: []metav1.Condition{{
+			Type: brokerv1a1.ConditionReady, Status: metav1.ConditionFalse,
+			Reason: brokerv1a1.ReasonEndpointUnreachable, LastTransitionTime: metav1.Now(),
+		}}},
+	}
+
+	tests := []struct {
+		name      string
+		backend   string
+		policy    brokerv1a1.DeletionPolicy
+		finalized bool
+	}{
+		{"retain, backend not ready", "dead", brokerv1a1.DeletionPolicyRetain, true},
+		{"retain, backend missing", "missing", brokerv1a1.DeletionPolicyRetain, true},
+		{"policy unset defaults to retain", "dead", "", true},
+		{"delete, backend not ready", "dead", brokerv1a1.DeletionPolicyDelete, false},
+		{"delete, backend missing", "missing", brokerv1a1.DeletionPolicyDelete, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, corev1.AddToScheme(scheme))
+			require.NoError(t, brokerv1a1.AddToScheme(scheme))
+
+			now := metav1.Now()
+			claim := &brokerv1a1.BucketClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "uploads", Namespace: "tenant",
+					Finalizers:        []string{brokerv1a1.Finalizer},
+					DeletionTimestamp: &now,
+				},
+				Spec: brokerv1a1.BucketClaimSpec{
+					BackendRef:     brokerv1a1.BackendRef{Name: tc.backend},
+					DeletionPolicy: tc.policy,
+				},
+			}
+			internal := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+				Name: "vk-uploads", Namespace: opsNS,
+				Labels: map[string]string{
+					vcstore.LabelRole:      vcstore.RoleVirtualCredential,
+					vcstore.LabelClaimNS:   "tenant",
+					vcstore.LabelClaimName: "uploads",
+				},
+			}}
+			cli := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(notReady, claim, internal).
+				WithStatusSubresource(&brokerv1a1.S3Backend{}, &brokerv1a1.BucketClaim{}).
+				Build()
+			r := &BucketClaimReconciler{
+				Client:   cli,
+				Scheme:   scheme,
+				Resolver: &credentials.Resolver{Client: cli},
+				Writer:   &vcstore.Writer{Client: cli, Namespace: opsNS},
+				Recorder: record.NewFakeRecorder(64),
+				OpsNS:    opsNS,
+			}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "tenant", Name: "uploads"}}
+
+			_, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			var bc brokerv1a1.BucketClaim
+			err = cli.Get(ctx, req.NamespacedName, &bc)
+			var sec corev1.Secret
+			secErr := cli.Get(ctx, client.ObjectKeyFromObject(internal), &sec)
+			if tc.finalized {
+				require.True(t, apierrors.IsNotFound(err), "claim should be gone, got %v", err)
+				require.True(t, apierrors.IsNotFound(secErr), "internal secret should be gone, got %v", secErr)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, bc.Finalizers, brokerv1a1.Finalizer)
+				require.NoError(t, secErr)
+			}
+		})
 	}
 }
