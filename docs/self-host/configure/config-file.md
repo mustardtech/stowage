@@ -16,6 +16,7 @@ keeping secrets out of files on disk.
 server:
   listen: ":8080"
   secret_key_file: /var/lib/stowage/secret.key
+  # roles: [dashboard, proxy, operator]  # a subset splits the process; needs db.driver: postgres
 
 db:
   driver: sqlite            # or postgres — see postgres.md

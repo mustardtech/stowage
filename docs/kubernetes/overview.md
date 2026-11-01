@@ -22,18 +22,32 @@ the stowage process.
 | `S3Backend` CRD | Cluster-scoped. |
 | `BucketClaim` CRD | Namespaced. |
 
-## Single-replica deployment is the only supported topology
+## Process roles and replicas
 
-Stowage is backed by SQLite on an RWO volume and an in-process
-rate-limiter / audit batcher / quota counter. Running a second pod
-would race on the database, double-execute reconciles, and split
-the rate-limit + audit state. The chart hardcodes `replicas: 1`
-with `strategy: Recreate`; the operator manager does take a
+The default deployment is one Pod running everything: dashboard, S3
+proxy and operator, on SQLite on an RWO volume. The chart renders that
+as `replicas: 1` with `strategy: Recreate`; the operator manager takes a
 leader-election Lease (`operator.leaderElection`, on by default) so a
-rolling update never double-reconciles. **Multi-replica is not supported and is not on
-the roadmap** — if you need HA, deploy a second stowage cluster
-in a separate namespace or cluster and point at a different
-upstream.
+rolling update never double-reconciles.
+
+To run more than one Pod, split the roles across processes and share
+one PostgreSQL store (`db.driver: postgres`, see
+[the Postgres store](../self-host/configure/postgres.md)):
+
+| Role | Serves | Replicas |
+|---|---|---|
+| `dashboard` | admin UI/API on `server.listen` | 1+ (sessions live in Postgres) |
+| `proxy` | S3 on `s3_proxy.listen`; `/healthz`, `/readyz`, `/metrics` on `server.listen` | N |
+| `operator` | reconcilers + admission webhooks | 2, one holds the Lease |
+
+Select roles with `server.roles` or `STOWAGE_ROLES=proxy` (comma list).
+A process without the operator role but with `operator.enabled: true`
+runs a read-only mirror of the S3Backend CRs so it can resolve
+CR-defined backends; the mirror is exempt from leader election. Rate
+limits (`global_rps`, `per_key_rps`, `max_inflight`, `per_key_inflight`)
+are per process, so divide them by the proxy replica count. Quota usage
+is scanned by every proxy and the dashboard; folder sizes only by the
+dashboard. Splitting roles while still on SQLite is refused at startup.
 
 The merged-pod deployment also means dashboard and operator share
 a fate: a pod restart drops admission availability for the

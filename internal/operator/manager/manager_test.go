@@ -44,3 +44,10 @@ func TestBuildOptionsLeaderElectionCustomID(t *testing.T) {
 		t.Fatalf("lease id = %q, want custom", opts.LeaderElectionID)
 	}
 }
+
+func TestBuildOptionsMirrorOnlyNeverElects(t *testing.T) {
+	opts := buildOptions(Config{OpsNamespace: "ops", LeaderElection: true, MirrorOnly: true}, runtime.NewScheme(), "0")
+	if opts.LeaderElection {
+		t.Fatal("a mirror-only manager must not take the operator Lease")
+	}
+}

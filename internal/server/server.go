@@ -51,6 +51,9 @@ type Server struct {
 	s3sqlite   *s3proxy.SQLiteSource
 	s3kube     *s3proxy.KubernetesSource
 	s3reloadIv time.Duration
+
+	// roles is which components this process runs (config.Roles).
+	roles config.RoleSet
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, error) {
@@ -271,19 +274,26 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, 
 		}
 	}
 
-	handler := api.NewRouter(api.Deps{
-		Logger:      logger,
-		FrontendFS:  frontend,
-		Auth:        authDeps,
-		Backends:    backendDeps,
-		Shares:      shareDeps,
-		Metrics:     mtx,
-		Audit:       &api.AuditDeps{Store: store},
-		S3Cred:      s3CredDeps,
-		S3Anon:      s3AnonDeps,
-		S3ProxyView: s3ProxyViewDeps,
-		Proxies:     proxies,
-	})
+	roles := cfg.Roles()
+
+	// A process without the dashboard role still answers /healthz, /readyz
+	// and /metrics on server.listen so probes and scrapes are role-agnostic.
+	var handler http.Handler = api.NewOpsHandler(mtx)
+	if roles.Dashboard {
+		handler = api.NewRouter(api.Deps{
+			Logger:      logger,
+			FrontendFS:  frontend,
+			Auth:        authDeps,
+			Backends:    backendDeps,
+			Shares:      shareDeps,
+			Metrics:     mtx,
+			Audit:       &api.AuditDeps{Store: store},
+			S3Cred:      s3CredDeps,
+			S3Anon:      s3AnonDeps,
+			S3ProxyView: s3ProxyViewDeps,
+			Proxies:     proxies,
+		})
+	}
 
 	srv := &Server{
 		cfg:      cfg,
@@ -303,9 +313,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, 
 		s3sqlite:   s3sqliteSource,
 		s3kube:     s3kubeSource,
 		s3reloadIv: 30 * time.Second,
+		roles:      roles,
 	}
 
-	if cfg.S3Proxy.Enabled {
+	if cfg.S3Proxy.Enabled && roles.Proxy {
 		if err := srv.buildS3Proxy(registry, mtx, auditRec, quotaSvc, proxies); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("build s3 proxy: %w", err)
@@ -439,9 +450,13 @@ func (s *Server) Run(ctx context.Context) error {
 		errCh <- err
 	}()
 	if s.cfg.Operator.Enabled {
+		// With the operator role this is the real manager (reconcilers,
+		// webhooks, Lease). Without it, only the read-only S3Backend mirror
+		// runs so the proxy/dashboard can resolve CR-defined backends.
 		pending++
 		go func() {
 			errCh <- opmgr.Start(ctx, opmgr.Config{
+				MirrorOnly:       !s.roles.Operator,
 				Kubeconfig:       s.cfg.Operator.Kubeconfig,
 				MetricsAddr:      s.cfg.Operator.MetricsAddr,
 				OpsNamespace:     s.cfg.Operator.OpsNamespace,
@@ -458,17 +473,20 @@ func (s *Server) Run(ctx context.Context) error {
 			}, s.logger)
 		}()
 	}
-	if s.s3http != nil {
-		// Start K8s informer first so the cache is primed before we accept
-		// proxy traffic. The informer's lifecycle is tied to ctx so it keeps
-		// receiving Secret events for the life of the server; the initial
-		// sync deadline lives inside Start.
-		if s.s3kube != nil {
-			if err := s.s3kube.Start(ctx); err != nil {
-				s.logger.Warn("s3 proxy: kubernetes source start failed; continuing with sqlite-only", "err", err.Error())
-			}
+	// Start the K8s informer first so the credential cache is primed before
+	// the proxy accepts traffic; the dashboard reads the same cache for its
+	// operator-managed views, so this runs in every role that has it. The
+	// informer's lifecycle is tied to ctx; the initial sync deadline lives
+	// inside Start.
+	if s.s3kube != nil {
+		if err := s.s3kube.Start(ctx); err != nil {
+			s.logger.Warn("s3 proxy: kubernetes source start failed; continuing with db-only", "err", err.Error())
 		}
+	}
+	if s.s3sqlite != nil {
 		go s.s3sqlite.Run(ctx, s.s3reloadIv)
+	}
+	if s.s3http != nil {
 		pending++
 		go func() {
 			s.logger.Info("s3 proxy listening", "addr", s.s3http.Addr)
@@ -480,21 +498,21 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	}
 
-	// Probe backends at startup so /api/backends reflects reality within a
-	// few seconds of boot. Rerun periodically so the UI's health indicator
-	// stays fresh.
-	go func() {
-		probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		s.registry.ProbeAll(probeCtx, 5*time.Second)
-	}()
-	go s.rePollBackends(ctx)
-
-	go s.reapSessions(ctx)
+	// Dashboard-only housekeeping: backend health for /api/backends, session
+	// and identity-cache reaping. A proxy-only process has no UI to feed.
+	if s.roles.Dashboard {
+		go func() {
+			probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			s.registry.ProbeAll(probeCtx, 5*time.Second)
+		}()
+		go s.rePollBackends(ctx)
+		go s.reapSessions(ctx)
+	}
 
 	// Drain the auth touch-batcher so deferred last_seen_at writes hit
 	// SQLite. Survives a shutdown — Run flushes once on ctx cancel.
-	if s.auth != nil && s.auth.Sessions != nil {
+	if s.roles.Dashboard && s.auth != nil && s.auth.Sessions != nil {
 		if s.auth.Sessions.Touch != nil {
 			go s.auth.Sessions.Touch.Run(ctx)
 		}
@@ -513,7 +531,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// age so the audit table can't grow without bound. A non-positive
 	// MaxAge keeps the trail forever (the default), so the goroutine is
 	// only started when an operator opts in.
-	if s.cfg.Audit.Retention.MaxAge > 0 {
+	if s.roles.Dashboard && s.cfg.Audit.Retention.MaxAge > 0 {
 		go s.reapAuditEvents(ctx, s.cfg.Audit.Retention.MaxAge)
 	}
 
@@ -522,9 +540,16 @@ func (s *Server) Run(ctx context.Context) error {
 	// next tick retries. Same dial controls the size-tracking scanner;
 	// rationale: both walk the same listings, and admins who want to
 	// quiet down listings traffic want both off.
+	// Quota usage is enforced wherever uploads happen (proxy and dashboard),
+	// so each such process keeps its own cache fresh. Folder sizes feed the
+	// UI only.
 	if s.cfg.Quotas.ScanInterval >= 0 {
-		go s.quotas.Run(ctx, s.cfg.Quotas.ScanInterval)
-		go s.sizes.Run(ctx, s.cfg.Quotas.ScanInterval)
+		if s.roles.Proxy || s.roles.Dashboard {
+			go s.quotas.Run(ctx, s.cfg.Quotas.ScanInterval)
+		}
+		if s.roles.Dashboard {
+			go s.sizes.Run(ctx, s.cfg.Quotas.ScanInterval)
+		}
 	}
 
 	select {
