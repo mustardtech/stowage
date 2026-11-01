@@ -5,11 +5,11 @@
 # The chart deploys into the Helm release namespace. Pick it at install time
 # with `helm install stowage ./chart -n stowage-system --create-namespace`.
 #
-# Topology: single replica only. Stowage is backed by SQLite on an RWO PVC
-# and an in-process rate-limiter / audit batcher; running two pods would
-# corrupt the database and double-execute reconciles. The chart hardcodes
-# replicas: 1 with strategy: Recreate. Multi-replica is not supported and
-# is not on the roadmap; deploy a second cluster instead if you need HA.
+# Topology: one Pod with every role by default (SQLite on a RWO PVC, or
+# Postgres). Set split.enabled with db.driver: postgres to run the
+# dashboard, N proxy replicas and a leader-elected operator pair as
+# separate Deployments sharing the database — see docs/kubernetes/overview.md
+# "Process roles and replicas".
 
 image:
   registry: ghcr.io/stowage-dev
@@ -25,6 +25,25 @@ image:
 resources:
   requests: {cpu: 50m, memory: 128Mi}
   limits:   {cpu: 500m, memory: 1Gi}
+
+# Split mode: three Deployments (stowage = dashboard, stowage-proxy,
+# stowage-operator) instead of one. Requires db.driver: postgres. The S3
+# Service keeps the name "stowage" so consumer Secrets need no change; the
+# dashboard moves to Service stowage-dashboard (the Ingress follows) and
+# the admission webhook to stowage-operator. Proxy limits in config
+# (global_rps, max_inflight, per_key_inflight) are per replica.
+split:
+  enabled: false
+  dashboard:
+    replicas: 1
+  proxy:
+    replicas: 2
+    minAvailable: 1
+    # Empty = the top-level resources block.
+    resources: {}
+  operator:
+    replicas: 2
+    resources: {}
 
 # Persistence. sqlite (default) keeps the single-replica layout below: one
 # file on the RWO volume. postgres points every stowage process at a shared

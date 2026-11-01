@@ -1,4 +1,7 @@
 {{- if .Values.stowage.enabled -}}
+{{- if not .Values.split.enabled -}}
+# Single mode: one Pod runs every role. SQLite on a RWO volume (or
+# Postgres) plus in-process limiters, so exactly one replica, Recreate.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,111 +11,86 @@ metadata:
     {{- include "stowage.dashboardLabels" . | nindent 4 }}
 spec:
   replicas: 1
-  # SQLite on a RWO volume + in-process rate-limiter / audit batcher.
-  # The single-replica constraint is structural; do not raise this.
   strategy:
     type: Recreate
   selector:
     matchLabels:
       {{- include "stowage.dashboardSelector" . | nindent 6 }}
   template:
-    metadata:
-      labels:
-        {{- include "stowage.dashboardLabels" . | nindent 8 }}
-      annotations:
-        # Roll the Pod when the rendered config or sealing key changes.
-        checksum/config: {{ include (print $.Template.BasePath "/stowage-config.yaml") . | sha256sum }}
-        checksum/secret-key: {{ include "stowage.secretKey" . | sha256sum }}
-        {{- if and .Values.operator.enabled .Values.webhook.enabled }}
-        checksum/webhook-cert: {{ include "stowage.webhookCABundle" . | sha256sum }}
-        {{- end }}
-        {{- if .Values.metrics.prometheusScrape }}
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
-        {{- end }}
-    spec:
-      serviceAccountName: stowage
-      {{- with (include "stowage.imagePullSecrets" . | trim) }}
-      {{ . | nindent 6 }}
-      {{- end }}
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        # fsGroup makes Secret volumes group-readable by 65532 so the
-        # non-root container can read tls.crt / tls.key at 0440.
-        fsGroup: 65532
-        seccompProfile: {type: RuntimeDefault}
-      containers:
-        - name: stowage
-          image: "{{ .Values.image.registry }}/stowage:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - serve
-            - --config=/etc/stowage/config.yaml
-          env:
-            - name: STOWAGE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: stowage-secret-key
-                  key: STOWAGE_SECRET_KEY
-            {{- if eq .Values.db.driver "postgres" }}
-            - name: STOWAGE_POSTGRES_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ required "db.postgres.existingSecret is required when db.driver is postgres" .Values.db.postgres.existingSecret }}
-                  key: {{ .Values.db.postgres.dsnKey }}
-            {{- end }}
-          ports:
-            - name: http
-              containerPort: 8080
-            - name: s3
-              containerPort: 8090
-            {{- if and .Values.operator.enabled .Values.webhook.enabled }}
-            - name: webhook
-              containerPort: 9443
-            {{- end }}
-          volumeMounts:
-            - name: config
-              mountPath: /etc/stowage
-              readOnly: true
-            {{- if ne .Values.db.driver "postgres" }}
-            - name: data
-              mountPath: /data
-            {{- end }}
-            {{- if and .Values.operator.enabled .Values.webhook.enabled }}
-            - name: webhook-certs
-              mountPath: /etc/stowage/webhook/certs
-              readOnly: true
-            {{- end }}
-          livenessProbe:
-            httpGet: {path: /healthz, port: http}
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          readinessProbe:
-            httpGet: {path: /readyz, port: http}
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities: {drop: [ALL]}
-      volumes:
-        - name: config
-          configMap:
-            name: stowage-config
-        {{- if ne .Values.db.driver "postgres" }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: stowage-data
-        {{- end }}
-        {{- if and .Values.operator.enabled .Values.webhook.enabled }}
-        - name: webhook-certs
-          secret:
-            secretName: stowage-webhook-cert
-            defaultMode: 0440
-        {{- end }}
+    {{- include "stowage.podTemplate" (dict "root" $ "role" "all" "component" "dashboard" "resources" .Values.resources) | nindent 4 }}
+{{- else -}}
+{{- if ne .Values.db.driver "postgres" }}
+{{- fail "split.enabled requires db.driver: postgres (SQLite cannot be shared between processes)" }}
+{{- end }}
+# Split mode: three Deployments share the Postgres store.
+# "stowage" keeps the dashboard selector so the upgrade from single mode
+# never replaces it; the proxy scales out; the operator pair is leader-elected.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stowage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.dashboardLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.split.dashboard.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "stowage.dashboardSelector" . | nindent 6 }}
+  template:
+    {{- include "stowage.podTemplate" (dict "root" $ "role" "dashboard" "component" "dashboard" "resources" .Values.resources) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stowage-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.componentLabels" (dict "root" $ "component" "proxy") | nindent 4 }}
+spec:
+  replicas: {{ .Values.split.proxy.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      {{- include "stowage.componentSelector" (dict "component" "proxy") | nindent 6 }}
+  template:
+    {{- include "stowage.podTemplate" (dict "root" $ "role" "proxy" "component" "proxy" "resources" (default .Values.resources .Values.split.proxy.resources)) | nindent 4 }}
+{{- if .Values.operator.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stowage-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.componentLabels" (dict "root" $ "component" "operator") | nindent 4 }}
+spec:
+  replicas: {{ .Values.split.operator.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "stowage.componentSelector" (dict "component" "operator") | nindent 6 }}
+  template:
+    {{- include "stowage.podTemplate" (dict "root" $ "role" "operator" "component" "operator" "resources" (default .Values.resources .Values.split.operator.resources)) | nindent 4 }}
+{{- end }}
+---
+# Keep at least one proxy up through node drains and rollouts.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: stowage-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.componentLabels" (dict "root" $ "component" "proxy") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.split.proxy.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "stowage.componentSelector" (dict "component" "proxy") | nindent 6 }}
+{{- end }}
 {{- end }}

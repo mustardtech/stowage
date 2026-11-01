@@ -13,7 +13,9 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      {{- include "stowage.dashboardSelector" . | nindent 6 }}
+      # Every component carries app.kubernetes.io/name=stowage; the ports
+      # below cover dashboard, proxy and operator alike.
+      app.kubernetes.io/name: stowage
   policyTypes: [Ingress]
   ingress:
     - ports:

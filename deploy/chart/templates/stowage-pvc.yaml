@@ -1,4 +1,4 @@
-{{- if and .Values.stowage.enabled (ne .Values.db.driver "postgres") -}}
+{{- if and .Values.stowage.enabled (ne .Values.db.driver "postgres") (not .Values.split.enabled) -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

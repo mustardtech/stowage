@@ -28,7 +28,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: stowage
+                name: {{ include "stowage.dashboardServiceName" . }}
                 port:
                   name: http
 {{- end }}

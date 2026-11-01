@@ -207,3 +207,55 @@ func truncate(s string, n int) string {
 	return s[:n] + "\n…(truncated)…"
 }
 
+// TestChartTemplate_Split asserts the split topology: three Deployments
+// sharing a Postgres store, each Pod pinned to one role, the S3 Service
+// name unchanged, the dashboard and webhook on their own Services, no PVC.
+func TestChartTemplate_Split(t *testing.T) {
+	dir := chartDir(t)
+	out := runHelm(t, "template", "stowage", dir,
+		"--namespace", "stowage-system",
+		"--set", "split.enabled=true",
+		"--set", "db.driver=postgres",
+		"--set", "db.postgres.existingSecret=stowage-pg",
+	)
+	for _, want := range []string{
+		"name: stowage-proxy", "name: stowage-operator", "name: stowage-dashboard",
+		"kind: PodDisruptionBudget",
+		`value: "dashboard"`, `value: "proxy"`, `value: "operator"`,
+		"name: STOWAGE_POSTGRES_DSN",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split render missing %q", want)
+		}
+	}
+	for _, reject := range []string{"kind: PersistentVolumeClaim", "mountPath: /data", "type: Recreate"} {
+		if strings.Contains(out, reject) {
+			t.Errorf("split render must not contain %q", reject)
+		}
+	}
+	if n := strings.Count(out, "kind: Deployment"); n != 3 {
+		t.Errorf("split render has %d Deployments, want 3", n)
+	}
+	// The admission webhook must point at the operator pods, not the dashboard.
+	if !strings.Contains(out, "        name: stowage-operator\n        namespace: stowage-system\n        port: 443") {
+		t.Errorf("webhook clientConfig does not target the stowage-operator Service")
+	}
+	for i, doc := range splitYAML(out) {
+		var any map[string]any
+		if err := yaml.Unmarshal([]byte(doc), &any); err != nil {
+			t.Errorf("doc %d unparseable: %v\ndoc:\n%s", i, err, truncate(doc, 800))
+		}
+	}
+}
+
+// TestChartTemplate_SplitNeedsPostgres: splitting on SQLite is refused at
+// render time, with the reason in the error.
+func TestChartTemplate_SplitNeedsPostgres(t *testing.T) {
+	dir := chartDir(t)
+	helm := requireHelm(t)
+	cmd := exec.Command(helm, "template", "stowage", dir, "--namespace", "stowage-system", "--set", "split.enabled=true")
+	outb, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(outb), "split.enabled requires db.driver: postgres") {
+		t.Fatalf("expected a render failure naming the postgres requirement; err=%v out=%s", err, truncate(string(outb), 400))
+	}
+}

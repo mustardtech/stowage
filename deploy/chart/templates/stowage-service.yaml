@@ -1,8 +1,45 @@
 {{- if .Values.stowage.enabled -}}
+# "stowage" is the S3 endpoint in both modes: its port 8090 is the URL the
+# operator stamps into consumer Secrets (stowage.proxyEndpointURL), so the
+# name must never change. In single mode it also fronts the dashboard and
+# the webhook; in split mode those get their own Services below.
 apiVersion: v1
 kind: Service
 metadata:
   name: stowage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.dashboardLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- if .Values.split.enabled }}
+    {{- include "stowage.componentSelector" (dict "component" "proxy") | nindent 4 }}
+    {{- else }}
+    {{- include "stowage.dashboardSelector" . | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    # Keep the service-port and target-port equal so the URL stays stable.
+    - name: s3
+      port: 8090
+      targetPort: s3
+    {{- if and .Values.operator.enabled .Values.webhook.enabled (not .Values.split.enabled) }}
+    # Admission webhook served by the operator manager that runs inside
+    # the same pod. ValidatingWebhookConfiguration targets this Service
+    # on port 443.
+    - name: webhook
+      port: 443
+      targetPort: webhook
+    {{- end }}
+{{- if .Values.split.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stowage-dashboard
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "stowage.dashboardLabels" . | nindent 4 }}
@@ -14,18 +51,23 @@ spec:
     - name: http
       port: 80
       targetPort: http
-    # The proxy port is also the URL the operator stamps into consumer
-    # Secrets — see stowage.proxyEndpointURL in _helpers.tpl. Keep the
-    # service-port and target-port equal so the URL stays stable.
-    - name: s3
-      port: 8090
-      targetPort: s3
-    {{- if and .Values.operator.enabled .Values.webhook.enabled }}
-    # Admission webhook served by the operator manager that runs inside
-    # the same pod. ValidatingWebhookConfiguration targets this Service
-    # on port 443.
+{{- if and .Values.operator.enabled .Values.webhook.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stowage-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stowage.componentLabels" (dict "root" $ "component" "operator") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "stowage.componentSelector" (dict "component" "operator") | nindent 4 }}
+  ports:
     - name: webhook
       port: 443
       targetPort: webhook
-    {{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
