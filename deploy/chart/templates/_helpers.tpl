@@ -121,3 +121,153 @@ imagePullSecrets:
 {{ .Values.webhook.caBundle }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+  Component labels/selectors. In single mode the one Deployment is the
+  "dashboard" component (every role inside); in split mode there are
+  three: dashboard, proxy, operator. The Deployment named "stowage" keeps
+  the dashboard selector in both modes so an upgrade never has to replace
+  it (selectors are immutable).
+*/}}
+{{- define "stowage.componentLabels" -}}
+{{ include "stowage.commonLabels" .root }}
+app.kubernetes.io/name: stowage
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{- define "stowage.componentSelector" -}}
+app.kubernetes.io/name: stowage
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{/*
+  Service names per mode. The S3 Service is always "stowage" so the
+  AWS_ENDPOINT_URL stamped into consumer Secrets (stowage.proxyEndpointURL)
+  never changes when a deployment moves from single to split.
+*/}}
+{{- define "stowage.dashboardServiceName" -}}
+{{- if .Values.split.enabled }}stowage-dashboard{{ else }}stowage{{ end -}}
+{{- end -}}
+
+{{- define "stowage.webhookServiceName" -}}
+{{- if .Values.split.enabled }}stowage-operator{{ else }}stowage{{ end -}}
+{{- end -}}
+
+{{/*
+  Pod template shared by every Deployment. Args: root, role (dashboard |
+  proxy | operator | all), component (label value). "all" is the single
+  Pod and renders no STOWAGE_ROLES so the binary runs every enabled role.
+*/}}
+{{- define "stowage.podTemplate" -}}
+{{- $ := .root -}}
+{{- $role := .role -}}
+{{- $hasOperator := or (eq $role "all") (eq $role "operator") -}}
+{{- $hasProxy := or (eq $role "all") (eq $role "proxy") -}}
+{{- $webhook := and $.Values.operator.enabled $.Values.webhook.enabled $hasOperator -}}
+{{- $sqliteVolume := and (ne $.Values.db.driver "postgres") (eq $role "all") -}}
+metadata:
+  labels:
+    {{- include "stowage.componentLabels" (dict "root" $ "component" .component) | nindent 4 }}
+  annotations:
+    # Roll the Pod when the rendered config or sealing key changes.
+    checksum/config: {{ include (print $.Template.BasePath "/stowage-config.yaml") $ | sha256sum }}
+    checksum/secret-key: {{ include "stowage.secretKey" $ | sha256sum }}
+    {{- if $webhook }}
+    checksum/webhook-cert: {{ include "stowage.webhookCABundle" $ | sha256sum }}
+    {{- end }}
+    {{- if $.Values.metrics.prometheusScrape }}
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+    {{- end }}
+spec:
+  serviceAccountName: stowage
+  {{- with (include "stowage.imagePullSecrets" $ | trim) }}
+  {{ . | nindent 2 }}
+  {{- end }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    # fsGroup makes Secret volumes group-readable by 65532 so the
+    # non-root container can read tls.crt / tls.key at 0440.
+    fsGroup: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: stowage
+      image: "{{ $.Values.image.registry }}/stowage:{{ $.Values.image.tag }}"
+      imagePullPolicy: {{ $.Values.image.pullPolicy }}
+      args:
+        - serve
+        - --config=/etc/stowage/config.yaml
+      env:
+        {{- if ne $role "all" }}
+        - name: STOWAGE_ROLES
+          value: {{ $role | quote }}
+        {{- end }}
+        - name: STOWAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: stowage-secret-key
+              key: STOWAGE_SECRET_KEY
+        {{- if eq $.Values.db.driver "postgres" }}
+        - name: STOWAGE_POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "db.postgres.existingSecret is required when db.driver is postgres" $.Values.db.postgres.existingSecret }}
+              key: {{ $.Values.db.postgres.dsnKey }}
+        {{- end }}
+      ports:
+        - name: http
+          containerPort: 8080
+        {{- if $hasProxy }}
+        - name: s3
+          containerPort: 8090
+        {{- end }}
+        {{- if $webhook }}
+        - name: webhook
+          containerPort: 9443
+        {{- end }}
+      volumeMounts:
+        - name: config
+          mountPath: /etc/stowage
+          readOnly: true
+        {{- if $sqliteVolume }}
+        - name: data
+          mountPath: /data
+        {{- end }}
+        {{- if $webhook }}
+        - name: webhook-certs
+          mountPath: /etc/stowage/webhook/certs
+          readOnly: true
+        {{- end }}
+      livenessProbe:
+        httpGet: {path: /healthz, port: http}
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      readinessProbe:
+        httpGet: {path: /readyz, port: http}
+        initialDelaySeconds: 2
+        periodSeconds: 5
+      resources:
+        {{- toYaml .resources | nindent 8 }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+  volumes:
+    - name: config
+      configMap:
+        name: stowage-config
+    {{- if $sqliteVolume }}
+    - name: data
+      persistentVolumeClaim:
+        claimName: stowage-data
+    {{- end }}
+    {{- if $webhook }}
+    - name: webhook-certs
+      secret:
+        secretName: stowage-webhook-cert
+        defaultMode: 0440
+    {{- end }}
+{{- end -}}

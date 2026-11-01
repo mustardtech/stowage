@@ -22,7 +22,7 @@ webhooks:
     timeoutSeconds: 10
     clientConfig:
       service:
-        name: stowage
+        name: {{ include "stowage.webhookServiceName" . }}
         namespace: {{ .Release.Namespace }}
         port: 443
         path: /validate-broker-stowage-io-v1alpha1-s3backend
@@ -42,7 +42,7 @@ webhooks:
     timeoutSeconds: 10
     clientConfig:
       service:
-        name: stowage
+        name: {{ include "stowage.webhookServiceName" . }}
         namespace: {{ .Release.Namespace }}
         port: 443
         path: /validate-broker-stowage-io-v1alpha1-bucketclaim

@@ -41,6 +41,13 @@ one PostgreSQL store (`db.driver: postgres`, see
 | `operator` | reconcilers + admission webhooks | 2, one holds the Lease |
 
 Select roles with `server.roles` or `STOWAGE_ROLES=proxy` (comma list).
+The chart does this for you: `split.enabled: true` with `db.driver:
+postgres` renders `stowage` (dashboard), `stowage-proxy`
+(`split.proxy.replicas`, with a PodDisruptionBudget) and
+`stowage-operator` (2 replicas, leader-elected). The S3 Service keeps
+the name `stowage`, so consumer Secrets need no change; the dashboard
+moves to Service `stowage-dashboard` (the Ingress follows) and the
+admission webhook to `stowage-operator`.
 A process without the operator role but with `operator.enabled: true`
 runs a read-only mirror of the S3Backend CRs so it can resolve
 CR-defined backends; the mirror is exempt from leader election. Rate
