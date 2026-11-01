@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite
+package sqlstore
 
 import (
 	"context"
@@ -105,7 +105,7 @@ func (s *Store) PurgeAuditEventsBefore(ctx context.Context, cutoff time.Time) (i
 
 // ListAuditEvents returns events newest-first matching the filter.
 func (s *Store) ListAuditEvents(ctx context.Context, f AuditFilter) ([]*AuditEvent, error) {
-	q, args := buildAuditQuery(f, false)
+	q, args := buildAuditQuery(s.dialect, f, false)
 	rows, err := s.R.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, f AuditFilter) ([]*AuditEve
 // CountAuditEvents returns the total matching the filter, ignoring limit
 // + offset. Used to drive pagination.
 func (s *Store) CountAuditEvents(ctx context.Context, f AuditFilter) (int64, error) {
-	q, args := buildAuditQuery(f, true)
+	q, args := buildAuditQuery(s.dialect, f, true)
 	var n int64
 	if err := s.R.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, err
@@ -138,7 +138,7 @@ func (s *Store) CountAuditEvents(ctx context.Context, f AuditFilter) (int64, err
 
 // buildAuditQuery composes the SELECT (or COUNT) with parameterised filter
 // clauses. Builder pattern keeps the SQL trivially auditable.
-func buildAuditQuery(f AuditFilter, count bool) (string, []any) {
+func buildAuditQuery(d Dialect, f AuditFilter, count bool) (string, []any) {
 	var (
 		clauses []string
 		args    []any
@@ -150,7 +150,7 @@ func buildAuditQuery(f AuditFilter, count bool) (string, []any) {
 	if f.Action != "" {
 		// Prefix match: querying "share." returns share.create / .revoke /
 		// .access without the caller having to enumerate them.
-		clauses = append(clauses, "action LIKE ?")
+		clauses = append(clauses, "action "+d.like()+" ?")
 		args = append(args, f.Action+"%")
 	}
 	if f.BackendID != "" {

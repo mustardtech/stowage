@@ -15,13 +15,13 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/quotas"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 func setup(t *testing.T) (*quotas.Service, *memory.Backend, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "q.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "q.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestCheckUploadEnforcesHardQuota(t *testing.T) {
 	putKB(t, mem, "existing.bin", 8) // 8 KiB used
 
 	// Configure a 10 KiB hard quota.
-	if err := svc.Store.UpsertQuota(ctx, &sqlite.BucketQuota{
+	if err := svc.Store.UpsertQuota(ctx, &sqlstore.BucketQuota{
 		BackendID: "mem", Bucket: "data",
 		HardBytes: 10 * 1024,
 		UpdatedAt: time.Now(), UpdatedBy: "admin",
@@ -115,7 +115,7 @@ func TestRecordedBumpsCacheBetweenScans(t *testing.T) {
 		t.Fatalf("scan: %v", err)
 	}
 
-	if err := svc.Store.UpsertQuota(ctx, &sqlite.BucketQuota{
+	if err := svc.Store.UpsertQuota(ctx, &sqlstore.BucketQuota{
 		BackendID: "mem", Bucket: "data",
 		HardBytes: 5 * 1024,
 		UpdatedAt: time.Now(), UpdatedBy: "admin",

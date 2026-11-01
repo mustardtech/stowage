@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // TouchBatcher coalesces TouchSession writes so authenticated GETs don't pay
@@ -20,7 +20,7 @@ import (
 // the same id are dropped, which is exactly what TouchSession would have
 // done anyway.
 type TouchBatcher struct {
-	store    *sqlite.Store
+	store    *sqlstore.Store
 	interval time.Duration
 
 	mu      sync.Mutex
@@ -37,7 +37,7 @@ type touchEntry struct {
 // NewTouchBatcher constructs a batcher. Call Run to start its drainer
 // goroutine; the returned batcher's Enqueue method is a no-op until then,
 // but is safe to call.
-func NewTouchBatcher(store *sqlite.Store, interval time.Duration) *TouchBatcher {
+func NewTouchBatcher(store *sqlstore.Store, interval time.Duration) *TouchBatcher {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}

@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 func TestPurgeAuditEventsBefore(t *testing.T) {
@@ -17,7 +17,7 @@ func TestPurgeAuditEventsBefore(t *testing.T) {
 
 	now := time.Now().UTC()
 	for _, age := range []time.Duration{72 * time.Hour, 48 * time.Hour, 1 * time.Hour} {
-		if err := store.InsertAuditEvent(ctx, &sqlite.AuditEvent{
+		if err := store.InsertAuditEvent(ctx, &sqlstore.AuditEvent{
 			Timestamp: now.Add(-age),
 			Action:    "test.event",
 			Status:    "ok",
@@ -35,7 +35,7 @@ func TestPurgeAuditEventsBefore(t *testing.T) {
 		t.Fatalf("purged %d rows, want 2", n)
 	}
 
-	remaining, err := store.CountAuditEvents(ctx, sqlite.AuditFilter{})
+	remaining, err := store.CountAuditEvents(ctx, sqlstore.AuditFilter{})
 	if err != nil {
 		t.Fatalf("CountAuditEvents: %v", err)
 	}

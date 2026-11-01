@@ -18,9 +18,12 @@ server:
   secret_key_file: /var/lib/stowage/secret.key
 
 db:
-  driver: sqlite
+  driver: sqlite            # or postgres — see postgres.md
   sqlite:
     path: /var/lib/stowage/stowage.db
+  postgres:
+    dsn: ""                 # or STOWAGE_POSTGRES_DSN
+    max_open_conns: 16
 
 auth:
   modes: [local]
@@ -95,8 +98,9 @@ The loader rejects any of these:
 - `log.format` is anything other than `json`, `text`, or empty.
 - `log.level` is anything other than `debug`, `info`, `warn`, `error`,
   or empty.
-- `db.driver` is `postgres` (not yet implemented) or anything other
-  than `sqlite` / empty.
+- `db.driver` is anything other than `sqlite`, `postgres` or empty.
+- `db.driver` is `postgres` and `db.postgres.dsn` (or
+  `STOWAGE_POSTGRES_DSN`) is empty.
 - `db.driver` is `sqlite` and `db.sqlite.path` is empty.
 - `auth.modes` is empty, or contains anything other than `local`,
   `oidc`, `static`.

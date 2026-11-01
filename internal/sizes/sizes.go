@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/backend"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // ErrTrackingDisabled is returned by PrefixSize when the bucket has the
@@ -52,7 +52,7 @@ type Usage struct {
 
 // Service owns the size scanner + on-demand prefix walker.
 type Service struct {
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Backends *backend.Registry
 	Logger   *slog.Logger
 
@@ -73,7 +73,7 @@ type prefixEntry struct {
 	expiresAt time.Time
 }
 
-func New(store *sqlite.Store, registry *backend.Registry, logger *slog.Logger) *Service {
+func New(store *sqlstore.Store, registry *backend.Registry, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}

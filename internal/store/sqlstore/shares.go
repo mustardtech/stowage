@@ -1,13 +1,15 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite
+package sqlstore
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Share is one row of the shares table. See migration v2.
@@ -166,10 +168,18 @@ WHERE id = ?
 	return nil
 }
 
-// isUniqueViolation detects SQLite's UNIQUE constraint error via message
-// matching — modernc.org/sqlite doesn't expose a typed error here.
+// isUniqueViolation detects a UNIQUE constraint error from either driver:
+// Postgres reports SQLSTATE 23505; modernc.org/sqlite exposes no typed
+// error, so its message is matched.
 func isUniqueViolation(err error) bool {
-	return err != nil && containsAll(err.Error(), "UNIQUE", "constraint")
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return containsAll(err.Error(), "UNIQUE", "constraint")
 }
 
 func containsAll(s string, subs ...string) bool {

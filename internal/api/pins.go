@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/stowage-dev/stowage/internal/auth"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // Pin endpoints live on AuthDeps because they're scoped to /api/me/* and
@@ -65,7 +65,7 @@ func (d *AuthDeps) handleCreatePin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "backend_id and bucket are required", "")
 		return
 	}
-	pin := &sqlite.BucketPin{
+	pin := &sqlstore.BucketPin{
 		UserID:    id.UserID,
 		BackendID: req.BackendID,
 		Bucket:    req.Bucket,

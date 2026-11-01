@@ -15,7 +15,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/sizes"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // ---- Per-bucket toggle --------------------------------------------------
@@ -69,7 +69,7 @@ func (d *BackendDeps) handlePutBucketSizeTracking(w http.ResponseWriter, r *http
 		return
 	}
 
-	row := &sqlite.BucketSizeTracking{
+	row := &sqlstore.BucketSizeTracking{
 		BackendID: bid,
 		Bucket:    bucket,
 		Enabled:   req.Enabled,

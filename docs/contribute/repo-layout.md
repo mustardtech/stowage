@@ -58,7 +58,7 @@ benchmarks/                 perf harness (CI: .github/workflows/benchmark.yml)
   **`internal/s3proxy/source_kubernetes.go`** — the wire contract on
   Kubernetes Secret data fields. Both must agree. See
   [Reference → Secret data fields](../reference/secret-fields.md).
-- **`internal/store/sqlite/migrations.go`** — append-only migration
+- **`internal/store/sqlstore/migrations.go`** — append-only migration
   list. Never edit a past migration.
 - **`internal/config/config.go`** — single source of truth for every
   config key, default, and validation rule.

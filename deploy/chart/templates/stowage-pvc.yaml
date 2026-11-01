@@ -1,4 +1,4 @@
-{{- if .Values.stowage.enabled -}}
+{{- if and .Values.stowage.enabled (ne .Values.db.driver "postgres") -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

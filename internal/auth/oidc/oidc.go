@@ -21,7 +21,7 @@ import (
 
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/config"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 
 	goidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/oklog/ulid/v2"
@@ -122,12 +122,12 @@ func (p *Provider) StartLogin(w http.ResponseWriter, r *http.Request) {
 // CallbackResult is the output of Callback: a validated, freshly-provisioned
 // or reused local user row ready for session issuance.
 type CallbackResult struct {
-	User *sqlite.User
+	User *sqlstore.User
 }
 
 // Callback validates the auth code, exchanges it for tokens, verifies the ID
 // token, and upserts a user record. It clears the flow cookies on exit.
-func (p *Provider) Callback(ctx context.Context, r *http.Request, w http.ResponseWriter, store *sqlite.Store) (*CallbackResult, error) {
+func (p *Provider) Callback(ctx context.Context, r *http.Request, w http.ResponseWriter, store *sqlstore.Store) (*CallbackResult, error) {
 	defer clearFlowCookies(w, r, p.isHTTPS(r))
 
 	if e := r.URL.Query().Get("error"); e != "" {
@@ -283,13 +283,13 @@ func extractStringSlice(raw map[string]any, path string) []string {
 // IMPORTANT: we never adopt an existing row whose oidc_subject is non-NULL
 // based on username — doing so is the F-2 takeover vector this fix exists
 // to close.
-func upsertOIDCUser(ctx context.Context, store *sqlite.Store, sub, username, email, role, source string) (*sqlite.User, error) {
+func upsertOIDCUser(ctx context.Context, store *sqlstore.Store, sub, username, email, role, source string) (*sqlstore.User, error) {
 	// 1. Canonical lookup by (source, sub).
 	u, err := store.GetUserByOIDCSubject(ctx, source, sub)
 	if err == nil {
 		return applyOIDCPatch(ctx, store, u, username, email, role)
 	}
-	if !errors.Is(err, sqlite.ErrUserNotFound) {
+	if !errors.Is(err, sqlstore.ErrUserNotFound) {
 		return nil, err
 	}
 
@@ -313,7 +313,7 @@ func upsertOIDCUser(ctx context.Context, store *sqlite.Store, sub, username, ema
 	}
 
 	now := time.Now().UTC()
-	nu := &sqlite.User{
+	nu := &sqlstore.User{
 		ID:             ulid.Make().String(),
 		Username:       username,
 		Role:           role,
@@ -337,8 +337,8 @@ func upsertOIDCUser(ctx context.Context, store *sqlite.Store, sub, username, ema
 // values. Username is also synced when it's drifted, so admins can rename
 // a user upstream and have it reflect locally — this is safe because the
 // row is keyed by (source, sub), not username.
-func applyOIDCPatch(ctx context.Context, store *sqlite.Store, u *sqlite.User, username, email, role string) (*sqlite.User, error) {
-	patch := sqlite.UserPatch{Role: &role}
+func applyOIDCPatch(ctx context.Context, store *sqlstore.Store, u *sqlstore.User, username, email, role string) (*sqlstore.User, error) {
+	patch := sqlstore.UserPatch{Role: &role}
 	if email != "" {
 		ns := sql.NullString{String: email, Valid: true}
 		patch.Email = &ns

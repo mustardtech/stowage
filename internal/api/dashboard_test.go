@@ -20,12 +20,12 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/metrics"
 	"github.com/stowage-dev/stowage/internal/quotas"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 func TestDashboardEndpoint(t *testing.T) {
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "dash.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "dash.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestDashboardEndpoint(t *testing.T) {
 	}
 
 	limits := quotas.NewSQLiteLimitSource(store, slog.Default())
-	if err := store.UpsertQuota(ctx, &sqlite.BucketQuota{
+	if err := store.UpsertQuota(ctx, &sqlstore.BucketQuota{
 		BackendID: "alpha", Bucket: "primary",
 		HardBytes: 1 << 30,
 		UpdatedAt: time.Now(), UpdatedBy: "admin",

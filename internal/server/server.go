@@ -30,14 +30,14 @@ import (
 	"github.com/stowage-dev/stowage/internal/secrets"
 	"github.com/stowage-dev/stowage/internal/shares"
 	"github.com/stowage-dev/stowage/internal/sizes"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 	"github.com/stowage-dev/stowage/web"
 )
 
 type Server struct {
 	cfg      config.Config
 	logger   *slog.Logger
-	store    *sqlite.Store
+	store    *sqlstore.Store
 	registry *backend.Registry
 	quotas   *quotas.Service
 	sizes    *sizes.Service
@@ -54,7 +54,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, error) {
-	store, err := sqlite.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.OpenConfig(ctx, cfg.DB)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
@@ -196,7 +196,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, 
 	}
 
 	mtx := metrics.New()
-	mtx.Prom = metrics.NewProm(cfg.DB.SQLite.Path)
+	mtx.Prom = metrics.NewProm(sqliteFileForMetrics(cfg.DB))
 
 	// Build the S3 proxy sources up front (when enabled) so the router's
 	// admin handlers can share them with the embedded proxy. The rest of
@@ -635,7 +635,7 @@ func (s *Server) reapAuditEvents(ctx context.Context, maxAge time.Duration) {
 
 // Store exposes the SQLite store so the CLI can share the same initialised
 // database (migrations applied) for subcommands like create-admin.
-func (s *Server) Store() *sqlite.Store { return s.store }
+func (s *Server) Store() *sqlstore.Store { return s.store }
 
 func buildStaticUser(cfg config.AuthConfig) (*auth.StaticUser, error) {
 	if !cfg.Static.Enabled {
@@ -674,4 +674,15 @@ func containsMode(modes []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// sqliteFileForMetrics returns the SQLite file to size-gauge, or "" when
+// the store is Postgres (no file to stat; the gauge is simply absent).
+func sqliteFileForMetrics(cfg config.DBConfig) string {
+	switch cfg.Driver {
+	case "", "sqlite":
+		return cfg.SQLite.Path
+	default:
+		return ""
+	}
 }

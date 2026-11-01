@@ -15,7 +15,7 @@ import (
 
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // handleMyList returns every SQLite-managed credential whose user_id matches
@@ -98,7 +98,7 @@ func (d *S3CredentialDeps) handleMyCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now().UTC()
-	c := &sqlite.S3Credential{
+	c := &sqlstore.S3Credential{
 		AccessKey:    akid,
 		SecretKeyEnc: enc,
 		BackendID:    req.BackendID,
@@ -124,7 +124,7 @@ func (d *S3CredentialDeps) handleMyCreate(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := d.Store.CreateS3Credential(r.Context(), c); err != nil {
-		if errors.Is(err, sqlite.ErrS3AccessKeyTaken) {
+		if errors.Is(err, sqlstore.ErrS3AccessKeyTaken) {
 			writeError(w, http.StatusConflict, "conflict", "access key already exists (very unlikely — retry)", "")
 			return
 		}
@@ -180,7 +180,7 @@ func (d *S3CredentialDeps) handleMyPatch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	patch := sqlite.S3CredentialPatch{
+	patch := sqlstore.S3CredentialPatch{
 		UpdatedBy: sql.NullString{String: id.UserID, Valid: id.UserID != ""},
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -213,7 +213,7 @@ func (d *S3CredentialDeps) handleMyPatch(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := d.Store.UpdateS3Credential(r.Context(), akid, patch); err != nil {
-		if errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+		if errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "credential not found", "")
 			return
 		}
@@ -251,7 +251,7 @@ func (d *S3CredentialDeps) handleMyDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := d.Store.DeleteS3Credential(r.Context(), akid); err != nil {
-		if errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+		if errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "credential not found", "")
 			return
 		}
@@ -274,7 +274,7 @@ func (d *S3CredentialDeps) handleMyDelete(w http.ResponseWriter, r *http.Request
 func (d *S3CredentialDeps) ownsCredential(ctx context.Context, w http.ResponseWriter, akid, userID string) bool {
 	row, err := d.Store.GetS3Credential(ctx, akid)
 	if err != nil {
-		if errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+		if errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "credential not found", "")
 			return false
 		}

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite
+package sqlstore
 
 import (
 	"context"
@@ -83,7 +83,7 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	row := s.R.QueryRowContext(ctx,
-		`SELECT `+userCols+` FROM users WHERE username = ? COLLATE NOCASE`, username)
+		`SELECT `+userCols+` FROM users WHERE username = ?`+s.dialect.nocase(), username)
 	u, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -154,7 +154,8 @@ func (s *Store) ListUsers(ctx context.Context, f UserListFilter) ([]*User, error
 	var clauses []string
 	var args []any
 	if f.Query != "" {
-		clauses = append(clauses, "(username LIKE ? OR COALESCE(email,'') LIKE ?)")
+		op := s.dialect.like()
+		clauses = append(clauses, "(username "+op+" ? OR COALESCE(email,'') "+op+" ?)")
 		like := "%" + f.Query + "%"
 		args = append(args, like, like)
 	}

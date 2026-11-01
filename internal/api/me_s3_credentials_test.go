@@ -21,15 +21,15 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // mountMyCreds wires the /api/me/s3-credentials routes against a sealer-equipped
 // store. The middleware injects an Identity for `userID` so handlers can scope.
-func mountMyCreds(t *testing.T, userID string) (*httptest.Server, *sqlite.Store, *S3CredentialDeps) {
+func mountMyCreds(t *testing.T, userID string) (*httptest.Server, *sqlstore.Store, *S3CredentialDeps) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "me.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "me.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestMyS3Credentials_DoesNotShowOthersCreds(t *testing.T) {
 	srv, store, _ := mountMyCreds(t, "alice")
 
 	// Bob's credential — alice should never see it.
-	bob := &sqlite.S3Credential{
+	bob := &sqlstore.S3Credential{
 		AccessKey:    "AKIABOB",
 		SecretKeyEnc: []byte{0x00},
 		BackendID:    "minio-prod",

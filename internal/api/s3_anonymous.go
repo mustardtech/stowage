@@ -15,14 +15,14 @@ import (
 
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // S3AnonymousDeps groups the collaborators the anonymous-binding handlers
 // need. Reloader fires the same SQLiteSource.Reload as the credential
 // handlers — the binding cache lives in the same source.
 type S3AnonymousDeps struct {
-	Store    *sqlite.Store
+	Store    *sqlstore.Store
 	Reloader SourceReloader
 	Audit    audit.Recorder
 	Logger   *slog.Logger
@@ -37,7 +37,7 @@ type s3AnonDTO struct {
 	CreatedBy      string `json:"created_by,omitempty"`
 }
 
-func anonToDTO(b *sqlite.S3AnonymousBinding) s3AnonDTO {
+func anonToDTO(b *sqlstore.S3AnonymousBinding) s3AnonDTO {
 	out := s3AnonDTO{
 		BackendID:      b.BackendID,
 		Bucket:         b.Bucket,
@@ -106,7 +106,7 @@ func (d *S3AnonymousDeps) handleUpsert(w http.ResponseWriter, r *http.Request) {
 		rps = *req.PerSourceIPRPS
 	}
 
-	binding := &sqlite.S3AnonymousBinding{
+	binding := &sqlstore.S3AnonymousBinding{
 		BackendID:      req.BackendID,
 		Bucket:         req.Bucket,
 		Mode:           mode,
@@ -145,7 +145,7 @@ func (d *S3AnonymousDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.Store.DeleteS3AnonymousBinding(r.Context(), bid, bucket); err != nil {
-		if errors.Is(err, sqlite.ErrS3AnonymousBindingNotFound) {
+		if errors.Is(err, sqlstore.ErrS3AnonymousBindingNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "binding not found", "")
 			return
 		}

@@ -57,6 +57,13 @@ spec:
                 secretKeyRef:
                   name: stowage-secret-key
                   key: STOWAGE_SECRET_KEY
+            {{- if eq .Values.db.driver "postgres" }}
+            - name: STOWAGE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "db.postgres.existingSecret is required when db.driver is postgres" .Values.db.postgres.existingSecret }}
+                  key: {{ .Values.db.postgres.dsnKey }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -70,8 +77,10 @@ spec:
             - name: config
               mountPath: /etc/stowage
               readOnly: true
+            {{- if ne .Values.db.driver "postgres" }}
             - name: data
               mountPath: /data
+            {{- end }}
             {{- if and .Values.operator.enabled .Values.webhook.enabled }}
             - name: webhook-certs
               mountPath: /etc/stowage/webhook/certs
@@ -95,9 +104,11 @@ spec:
         - name: config
           configMap:
             name: stowage-config
+        {{- if ne .Values.db.driver "postgres" }}
         - name: data
           persistentVolumeClaim:
             claimName: stowage-data
+        {{- end }}
         {{- if and .Values.operator.enabled .Values.webhook.enabled }}
         - name: webhook-certs
           secret:

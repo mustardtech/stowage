@@ -16,7 +16,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/s3v4"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 
@@ -118,7 +118,7 @@ func (d *BackendDeps) handleGetBucketCORS(w http.ResponseWriter, r *http.Request
 	defer cancel()
 	row, err := d.Store.GetS3BucketCORS(ctx, backendID, bucket)
 	if err != nil {
-		if errors.Is(err, sqlite.ErrS3BucketCORSNotFound) {
+		if errors.Is(err, sqlstore.ErrS3BucketCORSNotFound) {
 			writeJSON(w, http.StatusOK, corsPayload{Rules: []corsRuleDTO{}})
 			return
 		}
@@ -180,7 +180,7 @@ func (d *BackendDeps) handlePutBucketCORS(w http.ResponseWriter, r *http.Request
 
 	if len(req.Rules) == 0 {
 		if err := d.Store.DeleteS3BucketCORS(r.Context(), backendID, bucket); err != nil &&
-			!errors.Is(err, sqlite.ErrS3BucketCORSNotFound) {
+			!errors.Is(err, sqlstore.ErrS3BucketCORSNotFound) {
 			d.Logger.Warn("delete bucket cors", "err", err.Error())
 			writeError(w, http.StatusInternalServerError, "internal", "could not clear CORS rules", "")
 			return
@@ -192,7 +192,7 @@ func (d *BackendDeps) handlePutBucketCORS(w http.ResponseWriter, r *http.Request
 			return
 		}
 		now := time.Now().UTC()
-		row := &sqlite.S3BucketCORS{
+		row := &sqlstore.S3BucketCORS{
 			BackendID: backendID,
 			Bucket:    bucket,
 			Rules:     string(rulesJSON),

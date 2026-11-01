@@ -7,8 +7,9 @@
         "level" "info"
         "format" "json")
     "db" (dict
-        "driver" "sqlite"
-        "sqlite" (dict "path" "/data/stowage.db"))
+        "driver" .Values.db.driver
+        "sqlite" (dict "path" "/data/stowage.db")
+        "postgres" (dict "max_open_conns" (int .Values.db.postgres.maxOpenConns)))
     "auth" (dict
         "modes" (list "local")
         "session" (dict

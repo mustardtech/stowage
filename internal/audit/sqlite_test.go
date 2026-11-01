@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/stowage-dev/stowage/internal/audit"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func setup(t *testing.T) (*sqlite.Store, audit.Recorder, context.Context) {
+func setup(t *testing.T) (*sqlstore.Store, audit.Recorder, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "audit.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "audit.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestRecordAndList(t *testing.T) {
 		}
 	}
 
-	all, err := store.ListAuditEvents(ctx, sqlite.AuditFilter{})
+	all, err := store.ListAuditEvents(ctx, sqlstore.AuditFilter{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestFilterByPrefix(t *testing.T) {
 	for _, a := range []string{"auth.login", "share.create", "share.revoke", "object.delete"} {
 		_ = rec.Record(ctx, audit.Event{Action: a, Status: "ok"})
 	}
-	got, err := store.ListAuditEvents(ctx, sqlite.AuditFilter{Action: "share."})
+	got, err := store.ListAuditEvents(ctx, sqlstore.AuditFilter{Action: "share."})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -74,11 +74,11 @@ func TestFilterByUserAndBucket(t *testing.T) {
 	_ = rec.Record(ctx, audit.Event{Action: "object.delete", UserID: "u2", Backend: "a", Bucket: "x"})
 	_ = rec.Record(ctx, audit.Event{Action: "object.delete", UserID: "u1", Backend: "a", Bucket: "y"})
 
-	mineX, _ := store.ListAuditEvents(ctx, sqlite.AuditFilter{UserID: "u1", Bucket: "x"})
+	mineX, _ := store.ListAuditEvents(ctx, sqlstore.AuditFilter{UserID: "u1", Bucket: "x"})
 	if len(mineX) != 1 {
 		t.Fatalf("u1+x events=%d want 1", len(mineX))
 	}
-	allX, _ := store.ListAuditEvents(ctx, sqlite.AuditFilter{Bucket: "x"})
+	allX, _ := store.ListAuditEvents(ctx, sqlstore.AuditFilter{Bucket: "x"})
 	if len(allX) != 2 {
 		t.Fatalf("bucket x events=%d want 2", len(allX))
 	}
@@ -92,7 +92,7 @@ func TestCount(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		_ = rec.Record(ctx, audit.Event{Action: "x", Status: "error"})
 	}
-	n, err := store.CountAuditEvents(ctx, sqlite.AuditFilter{Status: "error"})
+	n, err := store.CountAuditEvents(ctx, sqlstore.AuditFilter{Status: "error"})
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}

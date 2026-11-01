@@ -15,7 +15,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/stowage-dev/stowage/internal/auth"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // SQLiteRecorder is the production audit recorder. Writes synchronously —
@@ -23,12 +23,12 @@ import (
 // keep the audit trail consistent with the response. Should profiling ever
 // surface this as a hot path, swap in a buffered async wrapper.
 type SQLiteRecorder struct {
-	Store   *sqlite.Store
+	Store   *sqlstore.Store
 	Logger  *slog.Logger
 	Proxies *auth.ProxyTrust // optional; nil = trust no proxy headers
 }
 
-func NewSQLiteRecorder(store *sqlite.Store, logger *slog.Logger, proxies *auth.ProxyTrust) *SQLiteRecorder {
+func NewSQLiteRecorder(store *sqlstore.Store, logger *slog.Logger, proxies *auth.ProxyTrust) *SQLiteRecorder {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -55,7 +55,7 @@ func (r *SQLiteRecorder) RecordBatch(ctx context.Context, events []Event) error 
 	if len(events) == 0 {
 		return nil
 	}
-	rows := make([]*sqlite.AuditEvent, len(events))
+	rows := make([]*sqlstore.AuditEvent, len(events))
 	for i, e := range events {
 		rows[i] = eventToRow(e)
 	}
@@ -70,14 +70,14 @@ func (r *SQLiteRecorder) RecordBatch(ctx context.Context, events []Event) error 
 // eventToRow turns the wire-shape Event into the persistence-shape row.
 // Centralised so Record + RecordBatch can't drift on null-coercion or
 // timestamp/status defaulting.
-func eventToRow(e Event) *sqlite.AuditEvent {
+func eventToRow(e Event) *sqlstore.AuditEvent {
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
 	}
 	if e.Status == "" {
 		e.Status = "ok"
 	}
-	row := &sqlite.AuditEvent{
+	row := &sqlstore.AuditEvent{
 		Timestamp: e.Timestamp.UTC(),
 		Action:    e.Action,
 		Status:    e.Status,

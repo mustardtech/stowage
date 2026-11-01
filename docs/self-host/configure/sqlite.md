@@ -45,7 +45,7 @@ consistent snapshot.
 ## Migrations
 
 The schema lives at
-[`internal/store/sqlite/migrations.go`](https://github.com/stowage-dev/stowage/blob/main/internal/store/sqlite/migrations.go)
+[`internal/store/sqlstore/migrations.go`](https://github.com/stowage-dev/stowage/blob/main/internal/store/sqlstore/migrations.go)
 as an append-only ordered list. Stowage applies pending migrations on
 every startup and records progress in a `schema_migrations` table.
 
@@ -97,7 +97,7 @@ explicitly sets `replicas: 1` and uses an `RWO` PVC.
 
 ## Postgres?
 
-`db.driver: postgres` is reserved in the config schema but
-**not yet implemented** — `Load()` returns an explicit "not yet
-implemented" error if you try it. Track this in
-[Roadmap](../../explanations/roadmap.md).
+Supported: see [PostgreSQL store](./postgres.md). It is the way to run
+more than one stowage process (dashboard + proxy replicas + operator)
+against one set of state. SQLite stays the default for the
+single-binary deployment.

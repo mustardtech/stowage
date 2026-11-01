@@ -21,7 +21,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/shares"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // shareServer spins up a chi router with just the share routes (authed +
@@ -32,7 +32,7 @@ func shareServer(t *testing.T) (*httptest.Server, *shares.Service, *memory.Backe
 	t.Helper()
 	ctx := context.Background()
 
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "api.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "api.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestShareHTTPPasswordProtected(t *testing.T) {
 func TestShareHTTPNonOwnerCannotRevoke(t *testing.T) {
 	// Custom server with a second user path.
 	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "api.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "api.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"bytes"
@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func newBackend(id string) *sqlite.Backend {
+func newBackend(id string) *sqlstore.Backend {
 	now := time.Now().UTC()
-	return &sqlite.Backend{
+	return &sqlstore.Backend{
 		ID:           id,
 		Name:         "Backend " + id,
 		Type:         "s3v4",
@@ -60,7 +60,7 @@ func TestBackendCreateAndGet(t *testing.T) {
 func TestBackendNotFound(t *testing.T) {
 	store := openTestStore(t)
 	_, err := store.GetBackend(context.Background(), "missing")
-	if !errors.Is(err, sqlite.ErrBackendNotFound) {
+	if !errors.Is(err, sqlstore.ErrBackendNotFound) {
 		t.Fatalf("err=%v want ErrBackendNotFound", err)
 	}
 }
@@ -72,7 +72,7 @@ func TestBackendDuplicateID(t *testing.T) {
 		t.Fatalf("first create: %v", err)
 	}
 	err := store.CreateBackend(ctx, newBackend("alpha"))
-	if !errors.Is(err, sqlite.ErrBackendIDTaken) {
+	if !errors.Is(err, sqlstore.ErrBackendIDTaken) {
 		t.Fatalf("err=%v want ErrBackendIDTaken", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestBackendUpdateScalarFields(t *testing.T) {
 	disabled := false
 	pathStyle := false
 	region := "eu-west-1"
-	patch := sqlite.BackendPatch{
+	patch := sqlstore.BackendPatch{
 		Name:      &newName,
 		Region:    &region,
 		PathStyle: &pathStyle,
@@ -139,7 +139,7 @@ func TestBackendUpdatePreservesSecretWhenNotSet(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	newName := "renamed"
-	if err := store.UpdateBackend(ctx, "alpha", sqlite.BackendPatch{Name: &newName}); err != nil {
+	if err := store.UpdateBackend(ctx, "alpha", sqlstore.BackendPatch{Name: &newName}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	got, _ := store.GetBackend(ctx, "alpha")
@@ -155,7 +155,7 @@ func TestBackendUpdateReplaceSecret(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	fresh := []byte{0x01, 0x00, 0x99, 0x88}
-	patch := sqlite.BackendPatch{}
+	patch := sqlstore.BackendPatch{}
 	patch.SetSecret(fresh)
 	if err := store.UpdateBackend(ctx, "alpha", patch); err != nil {
 		t.Fatalf("update: %v", err)
@@ -172,7 +172,7 @@ func TestBackendUpdateClearSecret(t *testing.T) {
 	if err := store.CreateBackend(ctx, newBackend("alpha")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	patch := sqlite.BackendPatch{}
+	patch := sqlstore.BackendPatch{}
 	patch.SetSecret(nil)
 	if err := store.UpdateBackend(ctx, "alpha", patch); err != nil {
 		t.Fatalf("update: %v", err)
@@ -186,8 +186,8 @@ func TestBackendUpdateClearSecret(t *testing.T) {
 func TestBackendUpdateMissing(t *testing.T) {
 	store := openTestStore(t)
 	name := "x"
-	err := store.UpdateBackend(context.Background(), "ghost", sqlite.BackendPatch{Name: &name})
-	if !errors.Is(err, sqlite.ErrBackendNotFound) {
+	err := store.UpdateBackend(context.Background(), "ghost", sqlstore.BackendPatch{Name: &name})
+	if !errors.Is(err, sqlstore.ErrBackendNotFound) {
 		t.Fatalf("err=%v want ErrBackendNotFound", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestBackendUpdateNoFieldsIsNoop(t *testing.T) {
 	if err := store.CreateBackend(ctx, newBackend("alpha")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.UpdateBackend(ctx, "alpha", sqlite.BackendPatch{}); err != nil {
+	if err := store.UpdateBackend(ctx, "alpha", sqlstore.BackendPatch{}); err != nil {
 		t.Fatalf("empty patch should be noop, got: %v", err)
 	}
 }
@@ -213,10 +213,10 @@ func TestBackendDelete(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	_, err := store.GetBackend(ctx, "alpha")
-	if !errors.Is(err, sqlite.ErrBackendNotFound) {
+	if !errors.Is(err, sqlstore.ErrBackendNotFound) {
 		t.Fatalf("after delete: err=%v want ErrBackendNotFound", err)
 	}
-	if err := store.DeleteBackend(ctx, "alpha"); !errors.Is(err, sqlite.ErrBackendNotFound) {
+	if err := store.DeleteBackend(ctx, "alpha"); !errors.Is(err, sqlstore.ErrBackendNotFound) {
 		t.Fatalf("delete missing: err=%v want ErrBackendNotFound", err)
 	}
 }

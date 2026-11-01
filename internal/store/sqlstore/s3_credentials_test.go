@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func newCred(akid string) *sqlite.S3Credential {
+func newCred(akid string) *sqlstore.S3Credential {
 	now := time.Now().UTC()
-	c := &sqlite.S3Credential{
+	c := &sqlstore.S3Credential{
 		AccessKey:    akid,
 		SecretKeyEnc: []byte{0x01, 0x00, 0xde, 0xad, 0xbe, 0xef},
 		BackendID:    "minio",
@@ -66,7 +66,7 @@ func TestS3Credential_DuplicateAccessKey(t *testing.T) {
 		t.Fatalf("first insert: %v", err)
 	}
 	err := store.CreateS3Credential(ctx, newCred("AKIADUPE"))
-	if !errors.Is(err, sqlite.ErrS3AccessKeyTaken) {
+	if !errors.Is(err, sqlstore.ErrS3AccessKeyTaken) {
 		t.Fatalf("want ErrS3AccessKeyTaken, got %v", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestS3Credential_NotFound(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 	_, err := store.GetS3Credential(ctx, "AKIANOPE")
-	if !errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+	if !errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 		t.Fatalf("want ErrS3CredentialNotFound, got %v", err)
 	}
 }
@@ -94,7 +94,7 @@ func TestS3Credential_UpdateAndList(t *testing.T) {
 	disabled := false
 	desc := "renamed"
 	newBuckets := `["only-one"]`
-	patch := sqlite.S3CredentialPatch{
+	patch := sqlstore.S3CredentialPatch{
 		Enabled:     &disabled,
 		Description: &desc,
 		Buckets:     &newBuckets,
@@ -136,7 +136,7 @@ func TestS3Credential_Delete(t *testing.T) {
 	if err := store.DeleteS3Credential(ctx, "AKIAD"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := store.DeleteS3Credential(ctx, "AKIAD"); !errors.Is(err, sqlite.ErrS3CredentialNotFound) {
+	if err := store.DeleteS3Credential(ctx, "AKIAD"); !errors.Is(err, sqlstore.ErrS3CredentialNotFound) {
 		t.Fatalf("second delete should miss, got %v", err)
 	}
 }

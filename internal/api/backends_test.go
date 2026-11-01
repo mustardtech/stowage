@@ -27,7 +27,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/backend"
 	"github.com/stowage-dev/stowage/internal/backend/memory"
 	"github.com/stowage-dev/stowage/internal/quotas"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // phase2Server wires the backend routes with a stub admin identity so the
@@ -41,7 +41,7 @@ func phase2Server(t *testing.T) (*httptest.Server, *memory.Backend) {
 // phase2ServerWithQuotas is like phase2Server but optionally wires a real
 // quota service backed by an on-disk SQLite. Returns the SQLite store so
 // tests can configure quota rows.
-func phase2ServerWithQuotas(t *testing.T, withQuotas bool) (*httptest.Server, *memory.Backend, *sqlite.Store, *quotas.Service) {
+func phase2ServerWithQuotas(t *testing.T, withQuotas bool) (*httptest.Server, *memory.Backend, *sqlstore.Store, *quotas.Service) {
 	t.Helper()
 	mem := memory.New("mem", "Memory Test")
 	reg := backend.NewRegistry()
@@ -51,7 +51,7 @@ func phase2ServerWithQuotas(t *testing.T, withQuotas bool) (*httptest.Server, *m
 
 	// Always provision a SQLite store — bucket CORS is stored in
 	// s3_bucket_cors so even non-quota tests need it for round-trips.
-	s, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	s, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -734,7 +734,7 @@ func TestQuotaEnforcedOnUpload(t *testing.T) {
 	assertStatus(t, resp, 201)
 
 	// Configure a 6 KiB hard quota directly via the store.
-	if err := store.UpsertQuota(context.Background(), &sqlite.BucketQuota{
+	if err := store.UpsertQuota(context.Background(), &sqlstore.BucketQuota{
 		BackendID: "mem", Bucket: "capped",
 		HardBytes: 6 * 1024,
 		UpdatedAt: time.Now(), UpdatedBy: "admin",
@@ -807,7 +807,7 @@ func TestCrossBackendTransfer(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "xfer.db"))
+	store, err := sqlstore.Open(ctx, filepath.Join(t.TempDir(), "xfer.db"))
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestCrossBackendTransfer(t *testing.T) {
 	}
 
 	// Audit row should be tagged object.transfer.
-	rows, _ := store.ListAuditEvents(ctx, sqlite.AuditFilter{Action: "object.transfer"})
+	rows, _ := store.ListAuditEvents(ctx, sqlstore.AuditFilter{Action: "object.transfer"})
 	if len(rows) == 0 {
 		t.Fatalf("expected an object.transfer audit row")
 	}
@@ -910,7 +910,7 @@ func TestObjectDeleteEmitsAuditRow(t *testing.T) {
 
 	// The phase2 harness uses a stub identity; both the upload and the
 	// delete should produce audit rows on the wired store.
-	events, err := store.ListAuditEvents(context.Background(), sqlite.AuditFilter{})
+	events, err := store.ListAuditEvents(context.Background(), sqlstore.AuditFilter{})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}

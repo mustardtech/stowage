@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite
+package sqlstore
 
 import (
 	"context"
@@ -278,6 +278,14 @@ CREATE TABLE s3_bucket_cors (
 }
 
 func (s *Store) migrate(ctx context.Context) error {
+	if s.dialect == DialectPostgres {
+		// CITEXT gives users.username / users.email the case-insensitive
+		// equality and uniqueness SQLite gets from COLLATE NOCASE. citext is
+		// a trusted extension, so the database owner can create it.
+		if _, err := s.DB.ExecContext(ctx, `CREATE EXTENSION IF NOT EXISTS citext`); err != nil {
+			return fmt.Errorf("create extension citext: %w", err)
+		}
+	}
 	if _, err := s.DB.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version    INTEGER PRIMARY KEY,
@@ -302,7 +310,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+		if _, err := tx.ExecContext(ctx, s.dialect.ddl(m.SQL)); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration %d (%s): %w", m.Version, m.Name, err)
 		}

@@ -12,7 +12,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/auth/oidc"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // AuthDeps plugs the auth stack into api.NewRouter. Kept separate from the
@@ -104,9 +104,9 @@ func (d *AuthDeps) handleLoginLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var flags sqlite.SessionFlags
+	var flags sqlstore.SessionFlags
 	if res.MustChangePW {
-		flags |= sqlite.FlagMustChangePW
+		flags |= sqlstore.FlagMustChangePW
 	}
 	if _, err := d.Service.Sessions.Issue(r.Context(), w, r, res.UserID, auth.SourceLocal, flags); err != nil {
 		writeError(w, http.StatusInternalServerError, "session_error", "could not create session", "")

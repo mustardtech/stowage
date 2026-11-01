@@ -14,7 +14,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/quotas"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // quotaDTO is the shape clients see — combines persisted config with
@@ -96,7 +96,7 @@ func (d *BackendDeps) handlePutQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := &sqlite.BucketQuota{
+	q := &sqlstore.BucketQuota{
 		BackendID: bid,
 		Bucket:    bucket,
 		SoftBytes: req.SoftBytes,
@@ -196,7 +196,7 @@ func quotaToDTO(l *quotas.Limit, u *quotas.Usage) quotaDTO {
 // quotaFromRow converts a freshly-upserted row into a Limit so the upsert
 // handler can return the stored shape without going through Limits.Get
 // (which would race with ReloadLimits on slow systems).
-func quotaFromRow(q *sqlite.BucketQuota) *quotas.Limit {
+func quotaFromRow(q *sqlstore.BucketQuota) *quotas.Limit {
 	if q == nil {
 		return nil
 	}

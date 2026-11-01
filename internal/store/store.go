@@ -3,7 +3,7 @@
 
 // Package store defines the persistence interface used for sessions, users,
 // audit events, share links, and preferences. SQLite is the default
-// implementation (internal/store/sqlite) with PostgreSQL pluggable later.
+// implementation (internal/store/sqlstore) with PostgreSQL pluggable later.
 package store
 
 import "context"

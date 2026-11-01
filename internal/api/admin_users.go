@@ -13,7 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/stowage-dev/stowage/internal/auth"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 type userDTO struct {
@@ -30,7 +30,7 @@ type userDTO struct {
 	LastLoginAt    *string `json:"last_login_at,omitempty"`
 }
 
-func toUserDTO(u *sqlite.User) userDTO {
+func toUserDTO(u *sqlstore.User) userDTO {
 	d := userDTO{
 		ID:             u.ID,
 		Username:       u.Username,
@@ -58,7 +58,7 @@ func toUserDTO(u *sqlite.User) userDTO {
 
 func (d *AuthDeps) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	filter := sqlite.UserListFilter{
+	filter := sqlstore.UserListFilter{
 		Query:  q.Get("query"),
 		Role:   q.Get("role"),
 		Source: q.Get("source"),
@@ -120,9 +120,9 @@ func (d *AuthDeps) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	u, err := d.Service.CreateLocalUser(r.Context(), req.Username, req.Email, req.Password, req.Role, createdBy, mustChange)
 	if err != nil {
 		switch {
-		case errors.Is(err, sqlite.ErrUsernameTaken):
+		case errors.Is(err, sqlstore.ErrUsernameTaken):
 			writeError(w, http.StatusConflict, "username_taken", "username already taken", "")
-		case errors.Is(err, sqlite.ErrEmailTaken):
+		case errors.Is(err, sqlstore.ErrEmailTaken):
 			writeError(w, http.StatusConflict, "email_taken", "email already taken", "")
 		default:
 			var pe *auth.PolicyError
@@ -140,7 +140,7 @@ func (d *AuthDeps) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 func (d *AuthDeps) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	u, err := d.Service.Store.GetUserByID(r.Context(), id)
-	if errors.Is(err, sqlite.ErrUserNotFound) {
+	if errors.Is(err, sqlstore.ErrUserNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 		return
 	}
@@ -171,7 +171,7 @@ func (d *AuthDeps) handlePatchUser(w http.ResponseWriter, r *http.Request) {
 	// a no-op patch.
 	if req.Role != nil || req.Enabled != nil {
 		current, err := d.Service.Store.GetUserByID(r.Context(), id)
-		if errors.Is(err, sqlite.ErrUserNotFound) {
+		if errors.Is(err, sqlstore.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 			return
 		}
@@ -205,17 +205,17 @@ func (d *AuthDeps) handlePatchUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	patch := sqlite.UserPatch{Role: req.Role, Enabled: req.Enabled}
+	patch := sqlstore.UserPatch{Role: req.Role, Enabled: req.Enabled}
 	if req.Email != nil {
 		ns := sql.NullString{String: *req.Email, Valid: *req.Email != ""}
 		patch.Email = &ns
 	}
 	if err := d.Service.Store.UpdateUser(r.Context(), id, patch); err != nil {
-		if errors.Is(err, sqlite.ErrUserNotFound) {
+		if errors.Is(err, sqlstore.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 			return
 		}
-		if errors.Is(err, sqlite.ErrEmailTaken) {
+		if errors.Is(err, sqlstore.ErrEmailTaken) {
 			writeError(w, http.StatusConflict, "email_taken", "email already taken", "")
 			return
 		}
@@ -256,7 +256,7 @@ func (d *AuthDeps) handleAdminResetPassword(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "weak_password", pe.Error(), "")
 			return
 		}
-		if errors.Is(err, sqlite.ErrUserNotFound) {
+		if errors.Is(err, sqlstore.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 			return
 		}
@@ -268,8 +268,8 @@ func (d *AuthDeps) handleAdminResetPassword(w http.ResponseWriter, r *http.Reque
 
 func (d *AuthDeps) handleAdminUnlock(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := d.Service.Store.UpdateUser(r.Context(), id, sqlite.UserPatch{Unlock: true}); err != nil {
-		if errors.Is(err, sqlite.ErrUserNotFound) {
+	if err := d.Service.Store.UpdateUser(r.Context(), id, sqlstore.UserPatch{Unlock: true}); err != nil {
+		if errors.Is(err, sqlstore.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 			return
 		}
@@ -288,7 +288,7 @@ func (d *AuthDeps) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	// Refuse the delete if the target is the only remaining enabled admin.
 	target, err := d.Service.Store.GetUserByID(r.Context(), id)
-	if errors.Is(err, sqlite.ErrUserNotFound) {
+	if errors.Is(err, sqlstore.ErrUserNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 		return
 	}
@@ -309,7 +309,7 @@ func (d *AuthDeps) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := d.Service.Store.DeleteUser(r.Context(), id); err != nil {
-		if errors.Is(err, sqlite.ErrUserNotFound) {
+		if errors.Is(err, sqlstore.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found", "")
 			return
 		}

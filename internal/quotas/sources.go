@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // Limit is one configured per-bucket quota. Sourced from either the
@@ -55,7 +55,7 @@ type LimitSource interface {
 // in-memory cache. Reload() is called by the admin handlers after CRUD to
 // refresh the cache without waiting for the next scheduled tick.
 type SQLiteLimitSource struct {
-	store  *sqlite.Store
+	store  *sqlstore.Store
 	logger *slog.Logger
 
 	mu    sync.RWMutex
@@ -67,7 +67,7 @@ type SQLiteLimitSource struct {
 
 // NewSQLiteLimitSource constructs a SQLite-backed limit source. The cache
 // starts empty — call Reload before serving traffic.
-func NewSQLiteLimitSource(store *sqlite.Store, logger *slog.Logger) *SQLiteLimitSource {
+func NewSQLiteLimitSource(store *sqlstore.Store, logger *slog.Logger) *SQLiteLimitSource {
 	if logger == nil {
 		logger = slog.Default()
 	}

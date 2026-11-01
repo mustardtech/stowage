@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package sqlite_test
+package sqlstore_test
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-func newAnon(backend, bucket string, rps int) *sqlite.S3AnonymousBinding {
-	return &sqlite.S3AnonymousBinding{
+func newAnon(backend, bucket string, rps int) *sqlstore.S3AnonymousBinding {
+	return &sqlstore.S3AnonymousBinding{
 		BackendID:      backend,
 		Bucket:         bucket,
 		Mode:           "ReadOnly",
@@ -48,7 +48,7 @@ func TestS3Anonymous_NotFound(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 	_, err := store.GetS3AnonymousBinding(ctx, "minio", "missing")
-	if !errors.Is(err, sqlite.ErrS3AnonymousBindingNotFound) {
+	if !errors.Is(err, sqlstore.ErrS3AnonymousBindingNotFound) {
 		t.Fatalf("want ErrS3AnonymousBindingNotFound, got %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestS3Anonymous_ListAndDelete(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 
-	for _, b := range []*sqlite.S3AnonymousBinding{
+	for _, b := range []*sqlstore.S3AnonymousBinding{
 		newAnon("minio", "alpha", 10),
 		newAnon("minio", "beta", 20),
 		newAnon("garage", "gamma", 30),
@@ -85,7 +85,7 @@ func TestS3Anonymous_ListAndDelete(t *testing.T) {
 	if err := store.DeleteS3AnonymousBinding(ctx, "minio", "alpha"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := store.DeleteS3AnonymousBinding(ctx, "minio", "alpha"); !errors.Is(err, sqlite.ErrS3AnonymousBindingNotFound) {
+	if err := store.DeleteS3AnonymousBinding(ctx, "minio", "alpha"); !errors.Is(err, sqlstore.ErrS3AnonymousBindingNotFound) {
 		t.Fatalf("second delete should miss: %v", err)
 	}
 }

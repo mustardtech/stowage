@@ -1,9 +1,11 @@
 // Copyright (C) 2026 Damian van der Merwe
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package sqlite implements the default stowage persistence backend using
-// modernc.org/sqlite (CGo-free, keeps the single-binary promise).
-package sqlite
+// Package sqlstore is the stowage persistence layer: one set of queries,
+// two dialects. SQLite (modernc.org/sqlite, CGo-free, keeps the
+// single-binary promise) is the default; PostgreSQL (OpenPostgres) is the
+// shared store for running several stowage processes at once.
+package sqlstore
 
 import (
 	"context"
@@ -26,9 +28,14 @@ import (
 //
 // Reads use s.R; writes, transactions, and migrations use s.DB.
 type Store struct {
-	DB *sql.DB
-	R  *sql.DB
+	DB *DB
+	R  *DB
+
+	dialect Dialect
 }
+
+// Dialect reports which SQL flavour this store was opened with.
+func (s *Store) Dialect() Dialect { return s.dialect }
 
 // readerPoolSize caps concurrent reader connections. WAL handles readers
 // well, but past ~CPU count we'd just queue at the OS scheduler. Eight is
@@ -78,7 +85,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("ping sqlite (reader): %w", err)
 	}
 
-	s := &Store{DB: writer, R: reader}
+	s := &Store{
+		DB:      &DB{DB: writer, d: DialectSQLite},
+		R:       &DB{DB: reader, d: DialectSQLite},
+		dialect: DialectSQLite,
+	}
 	if err := s.migrate(ctx); err != nil {
 		_ = writer.Close()
 		_ = reader.Close()
@@ -89,7 +100,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	werr := s.DB.Close()
-	if s.R != nil {
+	// Postgres shares one pool between DB and R; close it once.
+	if s.R != nil && s.R != s.DB {
 		if rerr := s.R.Close(); rerr != nil && werr == nil {
 			werr = rerr
 		}

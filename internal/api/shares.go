@@ -24,7 +24,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/audit"
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/shares"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // ShareDeps plugs the shares package into the router. Kept separate so the
@@ -140,7 +140,7 @@ type shareDTO struct {
 	Disposition    string `json:"disposition"`
 }
 
-func toShareDTO(s *sqlite.Share) shareDTO {
+func toShareDTO(s *sqlstore.Share) shareDTO {
 	d := shareDTO{
 		ID:            s.ID,
 		Code:          s.Code,
@@ -243,7 +243,7 @@ func (d *ShareDeps) handleListShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var rows []*sqlite.Share
+	var rows []*sqlstore.Share
 	var err error
 	scope := r.URL.Query().Get("scope")
 	if scope == "all" {
@@ -378,7 +378,7 @@ func previewKind(contentType, key string) string {
 // shareInfoFor builds the info DTO for a resolved share. The HEAD call is
 // cheap; we always do it so the SvelteKit page doesn't have to make a
 // follow-up call to populate the preview.
-func (d *ShareDeps) shareInfoFor(r *http.Request, sh *sqlite.Share) (shareInfoDTO, error) {
+func (d *ShareDeps) shareInfoFor(r *http.Request, sh *sqlstore.Share) (shareInfoDTO, error) {
 	info, err := d.Service.HeadTarget(r.Context(), sh)
 	if err != nil {
 		return shareInfoDTO{}, err
@@ -415,7 +415,7 @@ func (d *ShareDeps) shareInfoFor(r *http.Request, sh *sqlite.Share) (shareInfoDT
 // resolveWithCookie tries Lookup first when the share is password-protected
 // and the unlock cookie is valid; falls back to Resolve("") otherwise.
 // Returns the share, whether the unlock path succeeded, and any error.
-func (d *ShareDeps) resolveWithCookie(r *http.Request, code string) (*sqlite.Share, error) {
+func (d *ShareDeps) resolveWithCookie(r *http.Request, code string) (*sqlstore.Share, error) {
 	if c, err := r.Cookie(unlockCookieName(code)); err == nil && d.Unlock.verify(c.Value, time.Now(), code) {
 		// Cookie present and signature valid — bypass the password check
 		// but still enforce the rest of the gates.

@@ -28,7 +28,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/auth"
 	"github.com/stowage-dev/stowage/internal/config"
 	"github.com/stowage-dev/stowage/internal/server"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // DefaultBaseURL is the release directory we fetch MinIO binaries from.
@@ -420,7 +420,7 @@ func buildConfig(opts Options, sqlitePath, accessEnv, secretEnv string) config.C
 }
 
 func bootstrapAdmin(ctx context.Context, cfg config.Config, username, password string, logger *slog.Logger) error {
-	store, err := sqlite.Open(ctx, cfg.DB.SQLite.Path)
+	store, err := sqlstore.OpenConfig(ctx, cfg.DB)
 	if err != nil {
 		return err
 	}
@@ -431,7 +431,7 @@ func bootstrapAdmin(ctx context.Context, cfg config.Config, username, password s
 	case err == nil && existing != nil:
 		logger.Info("quickstart: admin already exists, leaving password unchanged", "username", username)
 		return nil
-	case errors.Is(err, sqlite.ErrUserNotFound):
+	case errors.Is(err, sqlstore.ErrUserNotFound):
 		// fall through to create
 	case err != nil:
 		return err

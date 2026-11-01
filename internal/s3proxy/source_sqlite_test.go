@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stowage-dev/stowage/internal/secrets"
-	"github.com/stowage-dev/stowage/internal/store/sqlite"
+	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
 // openTestStore opens a fresh sqlite store under t.TempDir. Mirrors the
-// helper in internal/store/sqlite/pins_test.go but lives in this package
+// helper in internal/store/sqlstore/pins_test.go but lives in this package
 // to avoid an import cycle.
-func openTestStore(t *testing.T) *sqlite.Store {
+func openTestStore(t *testing.T) *sqlstore.Store {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "s3proxy.db"))
+	store, err := sqlstore.Open(context.Background(), filepath.Join(t.TempDir(), "s3proxy.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
@@ -38,14 +38,14 @@ func newTestSealer(t *testing.T) *secrets.Sealer {
 
 // insertCred is a small fixture for SQLite source tests. It writes a row
 // directly via the store CRUD so the source has something to read.
-func insertCred(t *testing.T, store *sqlite.Store, sealer *secrets.Sealer,
+func insertCred(t *testing.T, store *sqlstore.Store, sealer *secrets.Sealer,
 	akid, secret, backend string, buckets []string, enabled bool, expires *time.Time,
 ) {
 	t.Helper()
 	enc, err := sealer.Seal([]byte(secret))
 	require.NoError(t, err)
 	now := time.Now().UTC()
-	c := &sqlite.S3Credential{
+	c := &sqlstore.S3Credential{
 		AccessKey:    akid,
 		SecretKeyEnc: enc,
 		BackendID:    backend,
@@ -115,7 +115,7 @@ func TestSQLiteSource_AnonymousBindingsRoundTrip(t *testing.T) {
 
 	now := time.Now().UTC()
 	require.NoError(t, store.UpsertS3AnonymousBinding(context.Background(),
-		&sqlite.S3AnonymousBinding{
+		&sqlstore.S3AnonymousBinding{
 			BackendID: "minio", Bucket: "Public", Mode: "ReadOnly",
 			PerSourceIPRPS: 50, CreatedAt: now,
 			CreatedBy: sql.NullString{String: "admin", Valid: true},
@@ -137,7 +137,7 @@ func TestSQLiteSource_CORSRulesRoundTrip(t *testing.T) {
 
 	now := time.Now().UTC()
 	require.NoError(t, store.UpsertS3BucketCORS(context.Background(),
-		&sqlite.S3BucketCORS{
+		&sqlstore.S3BucketCORS{
 			BackendID: "minio", Bucket: "Uploads",
 			Rules:     `[{"allowed_origins":["https://docs.example.com"],"allowed_methods":["POST"],"max_age_seconds":600}]`,
 			CreatedAt: now, UpdatedAt: now,
@@ -161,13 +161,13 @@ func TestSQLiteSource_CORSUnionAcrossBackends(t *testing.T) {
 
 	now := time.Now().UTC()
 	require.NoError(t, store.UpsertS3BucketCORS(context.Background(),
-		&sqlite.S3BucketCORS{
+		&sqlstore.S3BucketCORS{
 			BackendID: "minio", Bucket: "shared",
 			Rules:     `[{"allowed_origins":["https://a.example"],"allowed_methods":["GET"]}]`,
 			CreatedAt: now, UpdatedAt: now,
 		}))
 	require.NoError(t, store.UpsertS3BucketCORS(context.Background(),
-		&sqlite.S3BucketCORS{
+		&sqlstore.S3BucketCORS{
 			BackendID: "garage", Bucket: "shared",
 			Rules:     `[{"allowed_origins":["https://b.example"],"allowed_methods":["POST"]}]`,
 			CreatedAt: now, UpdatedAt: now,
@@ -187,14 +187,14 @@ func TestSQLiteSource_CORSMalformedRowsSkipped(t *testing.T) {
 
 	now := time.Now().UTC()
 	require.NoError(t, store.UpsertS3BucketCORS(context.Background(),
-		&sqlite.S3BucketCORS{
+		&sqlstore.S3BucketCORS{
 			BackendID: "minio", Bucket: "good",
 			Rules:     `[{"allowed_origins":["*"],"allowed_methods":["GET"]}]`,
 			CreatedAt: now, UpdatedAt: now,
 		}))
 	// Garbage rules JSON — the reload should warn and skip, not error.
 	require.NoError(t, store.UpsertS3BucketCORS(context.Background(),
-		&sqlite.S3BucketCORS{
+		&sqlstore.S3BucketCORS{
 			BackendID: "minio", Bucket: "broken",
 			Rules:     `not json`,
 			CreatedAt: now, UpdatedAt: now,
