@@ -56,7 +56,7 @@ func TestCopyToPostgres(t *testing.T) {
 	// A pre-sanitiser row with raw invalid UTF-8, exactly as older SQLite
 	// files hold them; the copier must carry it across.
 	if _, err := src.DB.ExecContext(ctx, `INSERT INTO audit_events (ts, action, status, object_key) VALUES (?, ?, ?, ?)`,
-		now, "copy.raw", "ok", "k/\xc0\xaf"); err != nil {
+		now, "copy.raw", "ok", "k/\xc0\xaf\x00"); err != nil {
 		t.Fatalf("raw audit row: %v", err)
 	}
 

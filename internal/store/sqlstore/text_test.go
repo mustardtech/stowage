@@ -13,9 +13,10 @@ import (
 	"github.com/stowage-dev/stowage/internal/store/sqlstore"
 )
 
-// Proxy audit fields come off the wire; a client once sent an object key
-// with a lone 0xC0 byte. SQLite stored it, Postgres refused the whole
-// batch (SQLSTATE 22021). Inserts must sanitise on both engines.
+// Proxy audit fields come off the wire; real clients have sent an object
+// key with a lone 0xC0 byte and a request id with a NUL. SQLite stored
+// both, Postgres refused each whole batch (SQLSTATE 22021). Inserts must
+// sanitise on both engines.
 func TestAuditInsertInvalidUTF8(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
@@ -24,12 +25,14 @@ func TestAuditInsertInvalidUTF8(t *testing.T) {
 		Timestamp: time.Now().UTC(), Action: "s3.put", Status: "ok",
 		ObjectKey: sql.NullString{String: bad, Valid: true},
 		UserAgent: sql.NullString{String: "agent\xff", Valid: true},
+		RequestID: sql.NullString{String: "nul\x00id", Valid: true},
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	if err := store.InsertAuditEvents(ctx, []*sqlstore.AuditEvent{{
 		Timestamp: time.Now().UTC(), Action: "s3.put", Status: "ok",
 		ObjectKey: sql.NullString{String: bad, Valid: true},
+		RequestID: sql.NullString{String: "nul\x00id", Valid: true},
 	}}); err != nil {
 		t.Fatalf("batch insert: %v", err)
 	}
@@ -43,6 +46,9 @@ func TestAuditInsertInvalidUTF8(t *testing.T) {
 	for _, e := range events {
 		if !strings.HasPrefix(e.ObjectKey.String, "photos/") || !strings.Contains(e.ObjectKey.String, "�") || strings.Contains(e.ObjectKey.String, "\xc0") {
 			t.Errorf("object key not sanitised: %q", e.ObjectKey.String)
+		}
+		if strings.ContainsRune(e.RequestID.String, 0) || !strings.HasPrefix(e.RequestID.String, "nul") {
+			t.Errorf("request id not sanitised: %q", e.RequestID.String)
 		}
 	}
 }

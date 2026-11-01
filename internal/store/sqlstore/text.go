@@ -10,15 +10,16 @@ import (
 )
 
 // validText makes a string safe for a Postgres TEXT column. SQLite stores
-// any bytes in TEXT, but Postgres rejects invalid UTF-8 (SQLSTATE 22021),
-// and the proxy's audit fields (object keys, user agents) come straight
-// off the wire. Invalid sequences become U+FFFD; valid strings are
-// returned untouched, so SQLite behaviour is unchanged for real text.
+// any bytes in TEXT, but Postgres rejects invalid UTF-8 and NUL (both
+// SQLSTATE 22021), and the proxy's audit fields (object keys, user
+// agents, request ids) come straight off the wire. Invalid sequences and
+// NULs become U+FFFD; clean strings are returned untouched, so SQLite
+// behaviour is unchanged for real text.
 func validText(s string) string {
-	if utf8.ValidString(s) {
+	if utf8.ValidString(s) && !strings.ContainsRune(s, 0) {
 		return s
 	}
-	return strings.ToValidUTF8(s, "�")
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "\x00", "�")
 }
 
 func validNullText(ns sql.NullString) sql.NullString {
