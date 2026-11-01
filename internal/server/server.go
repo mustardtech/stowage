@@ -442,12 +442,14 @@ func (s *Server) Run(ctx context.Context) error {
 		pending++
 		go func() {
 			errCh <- opmgr.Start(ctx, opmgr.Config{
-				Kubeconfig:     s.cfg.Operator.Kubeconfig,
-				MetricsAddr:    s.cfg.Operator.MetricsAddr,
-				OpsNamespace:   s.cfg.Operator.OpsNamespace,
-				ProxyURL:       s.cfg.Operator.ProxyURL,
-				PublicHostname: s.cfg.S3Proxy.PublicHostname,
-				Registry:       s.registry,
+				Kubeconfig:       s.cfg.Operator.Kubeconfig,
+				MetricsAddr:      s.cfg.Operator.MetricsAddr,
+				OpsNamespace:     s.cfg.Operator.OpsNamespace,
+				ProxyURL:         s.cfg.Operator.ProxyURL,
+				LeaderElection:   s.cfg.Operator.LeaderElection,
+				LeaderElectionID: s.cfg.Operator.LeaderElectionID,
+				PublicHostname:   s.cfg.S3Proxy.PublicHostname,
+				Registry:         s.registry,
 				Webhook: opmgr.WebhookConfig{
 					Enabled: s.cfg.Operator.Webhook.Enabled,
 					Port:    s.cfg.Operator.Webhook.Port,

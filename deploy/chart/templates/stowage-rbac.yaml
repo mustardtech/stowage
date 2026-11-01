@@ -69,8 +69,12 @@ rules:
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
-  # No coordination.k8s.io/leases rule: stowage is single-replica, so the
-  # operator manager runs without leader election.
+  # Leader election (operator.leaderElection): the manager takes a Lease in
+  # the release namespace so a rolling update or a second replica never
+  # double-reconciles. Harmless when the setting is off.
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

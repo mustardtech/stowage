@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -29,9 +30,7 @@ import (
 	"github.com/stowage-dev/stowage/internal/operator/webhook"
 )
 
-// Config governs the embedded operator manager. Stowage runs single-replica
-// (SQLite + in-process limiter), so leader election is intentionally absent —
-// there is never a second pod to contest a lease.
+// Config governs the embedded operator manager.
 type Config struct {
 	// Kubeconfig is an optional path to a kubeconfig file. Empty means
 	// in-cluster configuration.
@@ -63,6 +62,16 @@ type Config struct {
 	// (the `stowage operator` subcommand) leave it nil — there is no admin
 	// UI in that process to surface the entries into.
 	Registry *backend.Registry
+
+	// LeaderElection enables controller-runtime leader election so more than
+	// one operator replica can run: only the Lease holder reconciles, the
+	// others stand by and take over when it exits or stalls. Off means the
+	// single-replica behaviour (no Lease, no coordination.k8s.io RBAC needed).
+	LeaderElection bool
+
+	// LeaderElectionID names the Lease in OpsNamespace. Empty uses
+	// DefaultLeaderElectionID.
+	LeaderElectionID string
 
 	Webhook WebhookConfig
 }
@@ -98,10 +107,7 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if metricsAddr == "" {
 		metricsAddr = "0"
 	}
-	mgrOpts := ctrl.Options{
-		Scheme:  sch,
-		Metrics: metricsserver.Options{BindAddress: metricsAddr},
-	}
+	mgrOpts := buildOptions(cfg, sch, metricsAddr)
 	if cfg.Webhook.Enabled {
 		mgrOpts.WebhookServer = webhookserver.NewServer(webhookserver.Options{
 			Port:    cfg.Webhook.Port,
@@ -126,10 +132,10 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return fmt.Errorf("setup S3Backend controller: %w", err)
 	}
 	if err := (&controller.BucketClaimReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Resolver: resolver,
-		Writer:   writer,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Resolver:       resolver,
+		Writer:         writer,
 		Recorder:       recorder,
 		ProxyURL:       cfg.ProxyURL,
 		PublicHostname: cfg.PublicHostname,
@@ -172,4 +178,35 @@ func loadKubeConfig(path string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("", path)
 	}
 	return rest.InClusterConfig()
+}
+
+// DefaultLeaderElectionID is the Lease name used when Config.LeaderElectionID
+// is empty. The suffix matches the CRD group so the Lease is attributable.
+const DefaultLeaderElectionID = "stowage-operator.broker.stowage.io"
+
+// buildOptions turns Config into controller-runtime manager options. Kept
+// separate from Start so the leader-election wiring is unit-testable without
+// a cluster.
+func buildOptions(cfg Config, sch *runtime.Scheme, metricsAddr string) ctrl.Options {
+	opts := ctrl.Options{
+		Scheme:  sch,
+		Metrics: metricsserver.Options{BindAddress: metricsAddr},
+	}
+	if cfg.LeaderElection {
+		id := cfg.LeaderElectionID
+		if id == "" {
+			id = DefaultLeaderElectionID
+		}
+		opts.LeaderElection = true
+		opts.LeaderElectionID = id
+		// The Lease lives beside the virtual-credential Secrets so one Role
+		// covers both. Namespace must be set explicitly: controller-runtime
+		// can only infer it from the in-cluster service-account mount.
+		opts.LeaderElectionNamespace = cfg.OpsNamespace
+		// Release the Lease on a clean shutdown so the standby takes over
+		// immediately instead of waiting out LeaseDuration (15 s). Safe
+		// because Start only returns when the whole process is exiting.
+		opts.LeaderElectionReleaseOnCancel = true
+	}
+	return opts
 }

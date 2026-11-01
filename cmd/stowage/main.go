@@ -134,13 +134,16 @@ func runOperator(args []string) error {
 	logger.Info("stowage operator starting",
 		"webhook_enabled", cfg.Operator.Webhook.Enabled,
 		"ops_namespace", cfg.Operator.OpsNamespace,
+		"leader_election", cfg.Operator.LeaderElection,
 	)
 	if err := opmgr.Start(ctx, opmgr.Config{
-		Kubeconfig:     cfg.Operator.Kubeconfig,
-		MetricsAddr:    cfg.Operator.MetricsAddr,
-		OpsNamespace:   cfg.Operator.OpsNamespace,
-		ProxyURL:       cfg.Operator.ProxyURL,
-		PublicHostname: cfg.S3Proxy.PublicHostname,
+		Kubeconfig:       cfg.Operator.Kubeconfig,
+		MetricsAddr:      cfg.Operator.MetricsAddr,
+		OpsNamespace:     cfg.Operator.OpsNamespace,
+		ProxyURL:         cfg.Operator.ProxyURL,
+		LeaderElection:   cfg.Operator.LeaderElection,
+		LeaderElectionID: cfg.Operator.LeaderElectionID,
+		PublicHostname:   cfg.S3Proxy.PublicHostname,
 		Webhook: opmgr.WebhookConfig{
 			Enabled: cfg.Operator.Webhook.Enabled,
 			Port:    cfg.Operator.Webhook.Port,
