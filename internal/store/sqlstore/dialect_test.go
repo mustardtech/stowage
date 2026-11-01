@@ -28,7 +28,7 @@ func TestRewritePlaceholders(t *testing.T) {
 func TestPostgresDDLTranslation(t *testing.T) {
 	for _, m := range migrations {
 		out := DialectPostgres.ddl(m.SQL)
-		for _, bad := range []string{"NOCASE", "AUTOINCREMENT", "BLOB", "TIMESTAMPTZTZ"} {
+		for _, bad := range []string{"NOCASE", "AUTOINCREMENT", "BLOB", "TIMESTAMPTZTZ", "INTEGER"} {
 			if strings.Contains(out, bad) {
 				t.Errorf("migration %d (%s): %q survived translation", m.Version, m.Name, bad)
 			}
