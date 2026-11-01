@@ -11,9 +11,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -113,8 +115,12 @@ func (r *RegistryReconciler) unregisterIfK8sOwned(id string) {
 // of the referencing S3Backends so credential rotation is observed
 // without waiting for the next periodic resync.
 func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// The mirror is read-only and every replica needs it (a proxy must
+	// resolve S3Backend CRs whether or not its operator holds the Lease),
+	// so it is exempt from leader election.
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("s3backend-registry").
+		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		For(&brokerv1a1.S3Backend{}).
 		Watches(&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.secretToBackend),

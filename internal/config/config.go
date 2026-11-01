@@ -224,6 +224,12 @@ type ServerConfig struct {
 	// "behind a proxy" deployment. Setting a non-empty list locks the
 	// gate down to those CIDRs only.
 	TrustedProxies []string `yaml:"trusted_proxies"`
+	// Roles lists which components THIS process runs: dashboard, proxy,
+	// operator. Empty = all enabled components (the single-binary default).
+	// Any other subset needs db.driver: postgres so the processes share one
+	// store; see docs/kubernetes/overview.md "Process roles". The serve
+	// subcommand's --roles flag overrides this.
+	Roles []string `yaml:"roles"`
 	// SecretKeyFile is an optional path to a file containing the AES-256
 	// root key used to seal endpoint secrets at rest. If unset, only the
 	// STOWAGE_SECRET_KEY env var can supply the key. If set and the file
@@ -400,6 +406,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("STOWAGE_SQLITE_PATH"); v != "" {
 		cfg.DB.SQLite.Path = v
 	}
+	if v := os.Getenv("STOWAGE_ROLES"); v != "" {
+		cfg.Server.Roles = strings.Split(v, ",")
+	}
 	if v := os.Getenv("STOWAGE_DB_DRIVER"); v != "" {
 		cfg.DB.Driver = v
 	}
@@ -424,6 +433,9 @@ func (c Config) validate() error {
 	case "", "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("log.level must be debug|info|warn|error")
+	}
+	if err := c.validateRoles(); err != nil {
+		return err
 	}
 	switch c.DB.Driver {
 	case "", "sqlite":

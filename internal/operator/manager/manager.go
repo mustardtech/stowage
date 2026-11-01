@@ -73,6 +73,12 @@ type Config struct {
 	// DefaultLeaderElectionID.
 	LeaderElectionID string
 
+	// MirrorOnly runs just the S3Backend registry mirror (Registry must be
+	// set): no reconcilers, no webhooks, no Lease. It is what a process
+	// without the operator role (a proxy or dashboard replica) uses to see
+	// the S3Backend CRs the real operator owns.
+	MirrorOnly bool
+
 	Webhook WebhookConfig
 }
 
@@ -108,7 +114,7 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		metricsAddr = "0"
 	}
 	mgrOpts := buildOptions(cfg, sch, metricsAddr)
-	if cfg.Webhook.Enabled {
+	if cfg.Webhook.Enabled && !cfg.MirrorOnly {
 		mgrOpts.WebhookServer = webhookserver.NewServer(webhookserver.Options{
 			Port:    cfg.Webhook.Port,
 			CertDir: cfg.Webhook.CertDir,
@@ -121,6 +127,26 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	}
 
 	resolver := &credentials.Resolver{Client: mgr.GetClient()}
+
+	if cfg.MirrorOnly {
+		if cfg.Registry == nil {
+			return fmt.Errorf("mirror-only manager needs a Registry")
+		}
+		if err := (&controller.RegistryReconciler{
+			Client:   mgr.GetClient(),
+			Scheme:   mgr.GetScheme(),
+			Resolver: resolver,
+			Registry: cfg.Registry,
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("setup S3Backend registry mirror: %w", err)
+		}
+		logger.Info("S3Backend registry mirror starting", "ops_namespace", cfg.OpsNamespace)
+		if err := mgr.Start(ctx); err != nil {
+			return fmt.Errorf("mirror manager: %w", err)
+		}
+		return nil
+	}
+
 	writer := &vcstore.Writer{Client: mgr.GetClient(), Namespace: cfg.OpsNamespace}
 	recorder := mgr.GetEventRecorderFor("stowage")
 
@@ -192,7 +218,7 @@ func buildOptions(cfg Config, sch *runtime.Scheme, metricsAddr string) ctrl.Opti
 		Scheme:  sch,
 		Metrics: metricsserver.Options{BindAddress: metricsAddr},
 	}
-	if cfg.LeaderElection {
+	if cfg.LeaderElection && !cfg.MirrorOnly {
 		id := cfg.LeaderElectionID
 		if id == "" {
 			id = DefaultLeaderElectionID

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -98,6 +99,7 @@ func runServe(args []string) error {
 		"auth_modes", cfg.Auth.Modes,
 		"backends", len(cfg.Backends),
 		"db", describeDB(cfg.DB),
+		"roles", describeRoles(cfg.Roles()),
 	)
 	if err := srv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
@@ -269,4 +271,18 @@ func describeDB(cfg config.DBConfig) string {
 	default:
 		return cfg.Driver
 	}
+}
+
+func describeRoles(r config.RoleSet) string {
+	var out []string
+	if r.Dashboard {
+		out = append(out, config.RoleDashboard)
+	}
+	if r.Proxy {
+		out = append(out, config.RoleProxy)
+	}
+	if r.Operator {
+		out = append(out, config.RoleOperator)
+	}
+	return strings.Join(out, ",")
 }
