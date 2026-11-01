@@ -118,6 +118,14 @@ func copyTable(ctx context.Context, src *Store, tx *Tx, table string) (int64, er
 		if err := rows.Scan(ptrs...); err != nil {
 			return n, err
 		}
+		// SQLite TEXT may hold bytes Postgres TEXT refuses (invalid UTF-8 in
+		// audit object keys / user agents); BLOBs arrive as []byte and are
+		// left alone.
+		for i, v := range vals {
+			if str, ok := v.(string); ok {
+				vals[i] = validText(str)
+			}
+		}
 		if _, err := stmt.ExecContext(ctx, vals...); err != nil {
 			return n, fmt.Errorf("row %d: %w", n+1, err)
 		}
