@@ -26,6 +26,9 @@ spec:
     - stowage.{{ .Release.Namespace }}
     - stowage.{{ .Release.Namespace }}.svc
     - stowage.{{ .Release.Namespace }}.svc.cluster.local
+    - stowage-operator.{{ .Release.Namespace }}
+    - stowage-operator.{{ .Release.Namespace }}.svc
+    - stowage-operator.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: {{ .Values.webhook.certManager.issuerRef.kind }}
     name: {{ .Values.webhook.certManager.issuerRef.name | default "stowage-webhook-selfsigned" }}
