@@ -8,6 +8,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "stowage.dashboardLabels" . | nindent 4 }}
+  annotations:
+    stowage.io/webhook-cert-sans: {{ include "stowage.webhookCertSANs" . | quote }}
 data:
   tls.crt: {{ $cert.tlsCrt | quote }}
   tls.key: {{ $cert.tlsKey | quote }}

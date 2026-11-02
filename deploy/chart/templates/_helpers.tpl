@@ -82,12 +82,22 @@ imagePullSecrets:
 {{- if not (hasKey .Values "_webhookCertCache") -}}
   {{- $cache := dict -}}
   {{- $svc := printf "stowage.%s.svc" .Release.Namespace -}}
+  {{- $opSvc := printf "stowage-operator.%s.svc" .Release.Namespace -}}
+  {{/* Both Service names, whatever the mode: "stowage" serves the webhook in
+       single mode, "stowage-operator" in split mode, and a cert that covers
+       both survives switching. webhookCertSANs tags the Secret so an older
+       cert without the operator name is regenerated on upgrade. */}}
   {{- $altNames := list
       (printf "stowage.%s" .Release.Namespace)
       $svc
-      (printf "%s.cluster.local" $svc) -}}
+      (printf "%s.cluster.local" $svc)
+      (printf "stowage-operator.%s" .Release.Namespace)
+      $opSvc
+      (printf "%s.cluster.local" $opSvc) -}}
   {{- $existing := lookup "v1" "Secret" .Release.Namespace "stowage-webhook-cert" -}}
-  {{- if and $existing (hasKey (default (dict) $existing.data) "tls.crt") (hasKey (default (dict) $existing.data) "ca.crt") -}}
+  {{- $existingSANs := "" -}}
+  {{- if $existing -}}{{- $existingSANs = index (default (dict) $existing.metadata.annotations) "stowage.io/webhook-cert-sans" | default "" -}}{{- end -}}
+  {{- if and $existing (eq $existingSANs (include "stowage.webhookCertSANs" .)) (hasKey (default (dict) $existing.data) "tls.crt") (hasKey (default (dict) $existing.data) "ca.crt") -}}
     {{- $cache = dict
         "caCrt"  (index $existing.data "ca.crt")
         "tlsCrt" (index $existing.data "tls.crt")
@@ -270,4 +280,12 @@ spec:
         secretName: stowage-webhook-cert
         defaultMode: 0440
     {{- end }}
+{{- end -}}
+
+{{/*
+  webhookCertSANs names the set of Service names the self-signed webhook
+  cert covers. Stamped on the Secret; a mismatch regenerates the cert.
+*/}}
+{{- define "stowage.webhookCertSANs" -}}
+stowage,stowage-operator
 {{- end -}}
