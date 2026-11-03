@@ -160,6 +160,11 @@ type S3ProxyConfig struct {
 	// from the request (TLS / X-Forwarded-Proto).
 	PublicHostname string            `yaml:"public_hostname"`
 	Kubernetes     S3ProxyKubernetes `yaml:"kubernetes"`
+	// DeepHealth tunes /healthz/deep (store ping + credential informer
+	// synced + a probe of the listed backends). Empty backends = every
+	// registered backend, which is wrong as soon as one dead legacy backend
+	// is still registered: name the ones that must be reachable.
+	DeepHealth S3ProxyDeepHealth `yaml:"deep_health"`
 }
 
 // S3ProxyKubernetes opts the proxy into reading virtual credentials and
@@ -502,4 +507,12 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// S3ProxyDeepHealth configures the /healthz/deep probe.
+type S3ProxyDeepHealth struct {
+	// Backends to probe by registry id. Empty = all registered backends.
+	Backends []string `yaml:"backends"`
+	// CacheSeconds bounds how often the checks run. 0 = 10.
+	CacheSeconds int `yaml:"cache_seconds"`
 }

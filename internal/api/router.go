@@ -24,6 +24,7 @@ type Deps struct {
 	Backends   *BackendDeps     // required once backends land (Phase 2+)
 	Shares     *ShareDeps       // required once Phase 5 is wired
 	Metrics    *metrics.Service // optional; nil disables request counting
+	Deep       *DeepHealth      // optional; serves /healthz/deep when set
 	Audit      *AuditDeps       // optional; nil disables the viewer endpoint
 	// S3Cred / S3Anon are optional; non-nil only when the embedded SigV4
 	// proxy (cfg.S3Proxy.Enabled) is on. S3ProxyView fans the SQLite store
@@ -82,6 +83,9 @@ func NewRouter(d Deps) http.Handler {
 
 	r.Get("/healthz", healthz)
 	r.Get("/readyz", readyz)
+	if d.Deep != nil {
+		r.Get("/healthz/deep", d.Deep.Handler())
+	}
 	if d.Metrics != nil && d.Metrics.Prom != nil {
 		// Prometheus scrape endpoint. Public by design (operators run it
 		// behind a reverse proxy / network policy if they want to gate it);

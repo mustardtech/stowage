@@ -12,14 +12,17 @@ import (
 )
 
 // NewOpsHandler is the listener a process without the dashboard role
-// exposes on server.listen: liveness, readiness and Prometheus metrics,
-// nothing else. The full router serves the same three paths, so probes
+// exposes on server.listen: liveness, readiness, deep health and
+// Prometheus metrics, nothing else. The full router serves the same three paths, so probes
 // and scrape configs are identical across roles.
-func NewOpsHandler(mtx *metrics.Service) http.Handler {
+func NewOpsHandler(mtx *metrics.Service, deep *DeepHealth) http.Handler {
 	r := chi.NewRouter()
 	r.Use(securityHeaders)
 	r.Get("/healthz", healthz)
 	r.Get("/readyz", readyz)
+	if deep != nil {
+		r.Get("/healthz/deep", deep.Handler())
+	}
 	if mtx != nil && mtx.Prom != nil {
 		r.Method("GET", "/metrics", mtx.Prom.Handler())
 	}

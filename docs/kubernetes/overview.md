@@ -37,7 +37,7 @@ one PostgreSQL store (`db.driver: postgres`, see
 | Role | Serves | Replicas |
 |---|---|---|
 | `dashboard` | admin UI/API on `server.listen` | 1+ (sessions live in Postgres) |
-| `proxy` | S3 on `s3_proxy.listen`; `/healthz`, `/readyz`, `/metrics` on `server.listen` | N |
+| `proxy` | S3 on `s3_proxy.listen`; `/healthz`, `/readyz`, `/healthz/deep`, `/metrics` on `server.listen` | N |
 | `operator` | reconcilers + admission webhooks | 2, one holds the Lease |
 
 Select roles with `server.roles` or `STOWAGE_ROLES=proxy` (comma list).

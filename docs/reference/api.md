@@ -23,6 +23,7 @@ For the full code list, see [Error codes](./error-codes.md).
 |---|---|---|
 | GET | `/healthz` | Liveness probe. |
 | GET | `/readyz` | Readiness probe. |
+| GET | `/healthz/deep` | Can this process serve: store ping, credential informer synced, the backends in `s3_proxy.deep_health.backends` probed. 200 `{"status":"ok"}` or 503 `{"status":"degraded", …}` naming the failed check. Cached `cache_seconds` (10). For load balancers and site failover, not for liveness. |
 | GET | `/metrics` | Prometheus scrape (no auth — gate at the proxy). |
 
 ## Auth

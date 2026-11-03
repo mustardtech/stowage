@@ -134,6 +134,8 @@ A list. Each entry:
 | `s3_proxy.per_key_rps` | float | 0 | Per-credential RPS ceiling. 0 = unlimited. |
 | `s3_proxy.anonymous_enabled` | bool | false | Cluster-wide kill switch for anonymous reads. |
 | `s3_proxy.anonymous_rps` | float | 20 | Per-source-IP RPS default for anonymous reads. |
+| `s3_proxy.deep_health.backends` | list | [] | Backend ids `/healthz/deep` must reach. Empty = every registered backend (name them once a dead legacy backend is still registered). |
+| `s3_proxy.deep_health.cache_seconds` | int | 10 | How often the deep checks actually run. |
 | `s3_proxy.kubernetes.enabled` | bool | false | Read virtual creds from a Kubernetes Secret informer. |
 | `s3_proxy.kubernetes.namespace` | string | `stowage-system` | Namespace holding the operator-written Secrets. |
 | `s3_proxy.kubernetes.kubeconfig` | string | "" | Optional kubeconfig path. Empty = in-cluster. |
