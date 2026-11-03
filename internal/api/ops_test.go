@@ -14,7 +14,7 @@ import (
 func TestOpsHandler(t *testing.T) {
 	mtx := metrics.New()
 	mtx.Prom = metrics.NewProm("")
-	h := NewOpsHandler(mtx)
+	h := NewOpsHandler(mtx, nil)
 	for path, want := range map[string]int{"/healthz": 200, "/readyz": 200, "/metrics": 200, "/api/me": 404, "/": 404} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))

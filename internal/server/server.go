@@ -276,11 +276,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Server, 
 
 	roles := cfg.Roles()
 
-	// A process without the dashboard role still answers /healthz, /readyz
-	// and /metrics on server.listen so probes and scrapes are role-agnostic.
-	var handler http.Handler = api.NewOpsHandler(mtx)
+	deep := buildDeepHealth(cfg, store, registry, s3kubeSource)
+
+	// A process without the dashboard role still answers /healthz, /readyz,
+	// /healthz/deep and /metrics on server.listen so probes and scrapes are
+	// role-agnostic.
+	var handler http.Handler = api.NewOpsHandler(mtx, deep)
 	if roles.Dashboard {
 		handler = api.NewRouter(api.Deps{
+			Deep:        deep,
 			Logger:      logger,
 			FrontendFS:  frontend,
 			Auth:        authDeps,
@@ -710,4 +714,42 @@ func sqliteFileForMetrics(cfg config.DBConfig) string {
 	default:
 		return ""
 	}
+}
+
+// buildDeepHealth wires /healthz/deep from what this process has: the
+// shared store, the Kubernetes credential informer (when enabled) and the
+// backends named in s3_proxy.deep_health.backends (or every registered
+// backend when the list is empty).
+func buildDeepHealth(cfg config.Config, store *sqlstore.Store, registry *backend.Registry, kube *s3proxy.KubernetesSource) *api.DeepHealth {
+	d := &api.DeepHealth{
+		Store: store.Ping,
+		TTL:   time.Duration(cfg.S3Proxy.DeepHealth.CacheSeconds) * time.Second,
+	}
+	if kube != nil {
+		d.Sources = kube.Synced
+	}
+	want := map[string]bool{}
+	for _, id := range cfg.S3Proxy.DeepHealth.Backends {
+		want[id] = true
+	}
+	d.Backends = func(ctx context.Context) []api.BackendHealth {
+		var out []api.BackendHealth
+		for _, e := range registry.List() {
+			id := e.Backend.ID()
+			if len(want) > 0 && !want[id] {
+				continue
+			}
+			st := backend.Probe(ctx, e.Backend, 3*time.Second)
+			out = append(out, api.BackendHealth{
+				ID: id, Healthy: st.Healthy, LatencyMS: st.LastLatency.Milliseconds(), Error: st.LastError,
+			})
+		}
+		for id := range want {
+			if _, ok := registry.Get(id); !ok {
+				out = append(out, api.BackendHealth{ID: id, Healthy: false, Error: "not registered"})
+			}
+		}
+		return out
+	}
+	return d
 }

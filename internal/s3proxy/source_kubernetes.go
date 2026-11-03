@@ -102,6 +102,24 @@ type KubernetesSource struct {
 	// started is set once Start has been called so callers can poll for
 	// readiness via Size() without racing the first cache prime.
 	startedOnce sync.Once
+	// hasSynced is the informer's own sync predicate; nil before Start.
+	hasSynced cache.InformerSynced
+}
+
+// Synced reports whether the informer has been started and its cache has
+// completed the initial list. Used by /healthz/deep: a proxy whose
+// credential cache never primed must not be sent traffic.
+func (s *KubernetesSource) Synced() (bool, string) {
+	s.mu.RLock()
+	synced := s.hasSynced
+	s.mu.RUnlock()
+	if synced == nil {
+		return false, "kubernetes source not started"
+	}
+	if !synced() {
+		return false, "kubernetes informer cache not synced"
+	}
+	return true, ""
 }
 
 // NewKubernetesSource builds a Kubernetes-backed source. Returns an error
@@ -162,6 +180,10 @@ func (s *KubernetesSource) Start(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("add event handler: %w", err)
 	}
+
+	s.mu.Lock()
+	s.hasSynced = informer.HasSynced
+	s.mu.Unlock()
 
 	factory.Start(ctx.Done())
 	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
