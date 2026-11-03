@@ -181,3 +181,23 @@ func TestBucketClaimValidator_CORS(t *testing.T) {
 	))
 	require.ErrorContains(t, err, "spec.cors[1]")
 }
+
+func TestBucketClaimValidator_DerivedCredentialsRejectTimeBased(t *testing.T) {
+	v := &BucketClaimValidator{}
+	bad := &brokerv1a1.BucketClaim{Spec: brokerv1a1.BucketClaimSpec{
+		BackendRef:           brokerv1a1.BackendRef{Name: "b"},
+		CredentialGeneration: 1,
+		RotationPolicy:       &brokerv1a1.RotationPolicy{Mode: brokerv1a1.RotationModeTimeBased, IntervalDays: 30},
+	}}
+	if _, err := v.ValidateCreate(context.Background(), bad); err == nil {
+		t.Fatal("credentialGeneration + TimeBased must be rejected")
+	}
+	ok := &brokerv1a1.BucketClaim{Spec: brokerv1a1.BucketClaimSpec{
+		BackendRef:           brokerv1a1.BackendRef{Name: "b"},
+		CredentialGeneration: 1,
+		RotationPolicy:       &brokerv1a1.RotationPolicy{Mode: brokerv1a1.RotationModeManual},
+	}}
+	if _, err := v.ValidateCreate(context.Background(), ok); err != nil {
+		t.Fatalf("credentialGeneration with Manual rotation should pass: %v", err)
+	}
+}

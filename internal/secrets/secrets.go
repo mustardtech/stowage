@@ -130,23 +130,39 @@ func LoadOrGenerateFile(path string) (s *Sealer, generated bool, err error) {
 
 // New parses an encoded key string and returns a ready Sealer.
 func New(encoded string) (*Sealer, error) {
+	k, err := ParseKey(encoded)
+	if err != nil {
+		return nil, err
+	}
+	return NewFromKey(k)
+}
+
+// ParseKey decodes 32 random bytes written as 64 hex chars or 44 standard
+// base64 chars — the one key format every stowage root secret uses
+// (STOWAGE_SECRET_KEY, STOWAGE_CREDENTIAL_ROOT).
+func ParseKey(encoded string) (Key, error) {
 	var k Key
 	switch len(encoded) {
 	case hex.EncodedLen(keyLen): // 64
 		b, err := hex.DecodeString(encoded)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidKey, err)
+			return Key{}, fmt.Errorf("%w: %v", ErrInvalidKey, err)
 		}
 		copy(k[:], b)
 	case base64.StdEncoding.EncodedLen(keyLen): // 44
 		b, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil || len(b) != keyLen {
-			return nil, ErrInvalidKey
+			return Key{}, ErrInvalidKey
 		}
 		copy(k[:], b)
 	default:
-		return nil, ErrInvalidKey
+		return Key{}, ErrInvalidKey
 	}
+	return k, nil
+}
+
+// NewFromKey builds a Sealer from an already-parsed key.
+func NewFromKey(k Key) (*Sealer, error) {
 	block, err := aes.NewCipher(k[:])
 	if err != nil {
 		return nil, fmt.Errorf("secrets: aes: %w", err)

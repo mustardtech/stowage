@@ -141,7 +141,12 @@ func runOperator(args []string) error {
 		"ops_namespace", cfg.Operator.OpsNamespace,
 		"leader_election", cfg.Operator.LeaderElection,
 	)
+	credRoot, err := opmgr.CredentialRootFromEnv()
+	if err != nil {
+		return err
+	}
 	if err := opmgr.Start(ctx, opmgr.Config{
+		CredentialRoot:   credRoot,
 		Kubeconfig:       cfg.Operator.Kubeconfig,
 		MetricsAddr:      cfg.Operator.MetricsAddr,
 		OpsNamespace:     cfg.Operator.OpsNamespace,

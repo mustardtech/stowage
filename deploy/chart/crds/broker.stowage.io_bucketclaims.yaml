@@ -40,6 +40,8 @@ spec:
               x-kubernetes-validations:
                 - rule: "!self.forceDelete || self.deletionPolicy == 'Delete'"
                   message: "forceDelete=true requires deletionPolicy=Delete"
+                - rule: "!has(self.credentialGeneration) || self.credentialGeneration == 0 || !has(self.rotationPolicy) || self.rotationPolicy.mode != 'TimeBased'"
+                  message: "credentialGeneration (derived credentials) cannot be combined with TimeBased rotation; bump credentialGeneration to rotate"
               properties:
                 backendRef:
                   type: object
@@ -81,6 +83,13 @@ spec:
                       type: integer
                       minimum: 0
                       default: 300
+                credentialGeneration:
+                  # Derived credentials: the key is a function of the operator's shared
+                  # credential root, the claim identity and this number, so every
+                  # cluster mints the same key. 0 = random key (default). Bump to rotate.
+                  type: integer
+                  minimum: 0
+                  default: 0
                 anonymousAccess:
                   type: object
                   properties:

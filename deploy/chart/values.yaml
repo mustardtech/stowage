@@ -149,6 +149,16 @@ operator:
   # namespace) reconciles, the rest stand by. The ClusterRole grants the
   # Lease rule. Set false to run exactly as before (no Lease, no RBAC).
   leaderElection: true
+  # Shared credential root for DERIVED claim credentials (multi-cluster):
+  # with it, a BucketClaim that sets spec.credentialGeneration >= 1 gets an
+  # access key / secret computed from this root + the claim identity, so
+  # every cluster whose operator holds the same root mints the same key.
+  # Secret holding 32 random bytes as 64 hex or 44 base64 chars (same format
+  # as the sealing key). Empty = such claims fail Ready (CredentialsInvalid);
+  # claims without credentialGeneration keep random keys either way.
+  credentialRoot:
+    existingSecret: ""
+    key: STOWAGE_CREDENTIAL_ROOT
 
 networkPolicy:
   enabled: false

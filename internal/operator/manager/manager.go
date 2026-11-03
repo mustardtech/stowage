@@ -79,6 +79,12 @@ type Config struct {
 	// the S3Backend CRs the real operator owns.
 	MirrorOnly bool
 
+	// CredentialRoot, when set (>= 32 bytes), lets claims with
+	// spec.credentialGeneration > 0 get derived credentials: the same key
+	// in every cluster whose operator holds the same root. Empty = such
+	// claims fail Ready with CredentialsInvalid.
+	CredentialRoot []byte
+
 	Webhook WebhookConfig
 }
 
@@ -157,6 +163,14 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup S3Backend controller: %w", err)
 	}
+	var deriver *credentials.Deriver
+	if len(cfg.CredentialRoot) > 0 {
+		d, derr := credentials.NewDeriver(cfg.CredentialRoot)
+		if derr != nil {
+			return fmt.Errorf("credential root: %w", derr)
+		}
+		deriver = d
+	}
 	if err := (&controller.BucketClaimReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
@@ -166,6 +180,7 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		ProxyURL:       cfg.ProxyURL,
 		PublicHostname: cfg.PublicHostname,
 		OpsNS:          cfg.OpsNamespace,
+		Deriver:        deriver,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup BucketClaim controller: %w", err)
 	}
@@ -192,7 +207,8 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) error {
 
 	logger.Info("operator manager starting",
 		"webhook_enabled", cfg.Webhook.Enabled,
-		"ops_namespace", cfg.OpsNamespace)
+		"ops_namespace", cfg.OpsNamespace,
+		"derived_credentials", deriver != nil)
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("manager: %w", err)
 	}
