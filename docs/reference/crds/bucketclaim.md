@@ -24,6 +24,7 @@ spec:
     mode: Manual|TimeBased               # default: Manual
     intervalDays: int                    # default 90, min 1; min 7 when TimeBased
     overlapSeconds: int                  # default 300
+  credentialGeneration: int              # default 0 = random key; >= 1 = derived key, bump to rotate
   anonymousAccess:
     mode: None|ReadOnly                  # default: None
     perSourceIPRPS: int                  # default 0 (inherit s3_proxy.anonymous_rps)
@@ -81,6 +82,8 @@ Encoded as `+kubebuilder:validation:XValidation`:
 - `quota.soft <= quota.hard` when both set.
 - `forceDelete: true` requires `deletionPolicy: Delete`.
 - `rotationPolicy.mode: TimeBased` requires `intervalDays >= 7`.
+- `credentialGeneration >= 1` cannot be combined with `rotationPolicy.mode: TimeBased`
+  (a derived key only changes when the generation does).
 - `bucketName` is immutable once set.
 
 ## Finalizer

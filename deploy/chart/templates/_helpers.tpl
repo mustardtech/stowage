@@ -220,6 +220,13 @@ spec:
             secretKeyRef:
               name: stowage-secret-key
               key: STOWAGE_SECRET_KEY
+        {{- if and $hasOperator $.Values.operator.credentialRoot.existingSecret }}
+        - name: STOWAGE_CREDENTIAL_ROOT
+          valueFrom:
+            secretKeyRef:
+              name: {{ $.Values.operator.credentialRoot.existingSecret }}
+              key: {{ $.Values.operator.credentialRoot.key }}
+        {{- end }}
         {{- if eq $.Values.db.driver "postgres" }}
         - name: STOWAGE_POSTGRES_DSN
           valueFrom:

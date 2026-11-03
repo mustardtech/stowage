@@ -51,6 +51,11 @@ type BucketClaimReconciler struct {
 	PublicHostname string
 	OpsNS          string
 	MaxWorkers     int
+	// Deriver mints derived credentials for claims that set
+	// spec.credentialGeneration. nil when the operator has no credential
+	// root; such claims then fail with credentials.ErrNoRoot rather than
+	// silently getting a random key.
+	Deriver *credentials.Deriver
 }
 
 // +kubebuilder:rbac:groups=broker.stowage.io,resources=bucketclaims,verbs=get;list;watch;create;update;patch;delete
@@ -151,7 +156,11 @@ func (r *BucketClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	vc, rotatedAt, err := r.ensureCredential(ctx, &claim, &bck, bucketName)
 	if err != nil {
-		r.setClaimReady(&claim, metav1.ConditionFalse, brokerv1a1.ReasonBackendError, err.Error())
+		reason := brokerv1a1.ReasonBackendError
+		if errors.Is(err, credentials.ErrNoRoot) {
+			reason = brokerv1a1.ReasonCredentialsInvalid
+		}
+		r.setClaimReady(&claim, metav1.ConditionFalse, reason, err.Error())
 		return r.patchStatus(ctx, &claim, 30*time.Second)
 	}
 	if err := r.sweepExpired(ctx, logger, &claim); err != nil {
@@ -288,6 +297,10 @@ func (r *BucketClaimReconciler) ensureCredential(ctx context.Context, claim *bro
 	active, _, err := r.listCredentials(ctx, claim)
 	if err != nil {
 		return credentials.VirtualKey{}, nil, err
+	}
+
+	if gen := claim.Spec.CredentialGeneration; gen > 0 {
+		return r.ensureDerivedCredential(ctx, claim, bck, bucketName, active, gen)
 	}
 
 	needRotation := r.rotationDue(claim, active)
@@ -592,4 +605,76 @@ func quotaBytes(q *brokerv1a1.BucketQuota) (soft, hard int64) {
 		hard = q.Hard.Value()
 	}
 	return soft, hard
+}
+
+// ensureDerivedCredential is ensureCredential for claims with
+// spec.credentialGeneration > 0: the key is computed, not minted, so the
+// question is only whether the Secret for the current generation exists.
+// A generation bump looks exactly like a rotation to the rest of the
+// system (new Secret, old ones expire after the overlap).
+func (r *BucketClaimReconciler) ensureDerivedCredential(ctx context.Context, claim *brokerv1a1.BucketClaim, bck *brokerv1a1.S3Backend, bucketName string, active []corev1.Secret, generation int32) (credentials.VirtualKey, *metav1.Time, error) {
+	if r.Deriver == nil {
+		return credentials.VirtualKey{}, nil, credentials.ErrNoRoot
+	}
+	key := r.Deriver.Derive(credentials.Identity{
+		Backend:   bck.Name,
+		Bucket:    bucketName,
+		Namespace: claim.Namespace,
+		Name:      claim.Name,
+	}, generation)
+	soft, hard := quotaBytes(claim.Spec.Quota)
+	vc := vcstore.VirtualCredential{
+		AccessKeyID:     key.AccessKeyID,
+		SecretAccessKey: key.SecretAccessKey,
+		BucketName:      bucketName,
+		ClaimNamespace:  claim.Namespace,
+		ClaimName:       claim.Name,
+		ClaimUID:        string(claim.UID),
+		BackendName:     bck.Name,
+		QuotaSoftBytes:  soft,
+		QuotaHardBytes:  hard,
+	}
+
+	var current *corev1.Secret
+	var previous []corev1.Secret
+	for i := range active {
+		if string(active[i].Data[vcstore.DataAccessKeyID]) == key.AccessKeyID {
+			current = &active[i]
+		} else {
+			previous = append(previous, active[i])
+		}
+	}
+
+	if current != nil {
+		// Same generation already live: re-stamp quota drift, as the random
+		// path does, and keep the key.
+		if string(current.Data[vcstore.DataQuotaSoftBytes]) != quotaField(soft) ||
+			string(current.Data[vcstore.DataQuotaHardBytes]) != quotaField(hard) {
+			if err := r.Writer.WriteInternal(ctx, vc); err != nil {
+				return credentials.VirtualKey{}, nil, err
+			}
+		}
+		return key, nil, nil
+	}
+
+	if err := r.Writer.WriteInternal(ctx, vc); err != nil {
+		return credentials.VirtualKey{}, nil, err
+	}
+	if len(previous) == 0 {
+		return key, nil, nil
+	}
+	// A generation bump (or the switch from a random key): the old
+	// credentials stay valid for the overlap window, exactly like a
+	// time-based rotation.
+	overlap := 300 * time.Second
+	if claim.Spec.RotationPolicy != nil && claim.Spec.RotationPolicy.OverlapSeconds > 0 {
+		overlap = time.Duration(claim.Spec.RotationPolicy.OverlapSeconds) * time.Second
+	}
+	expires := time.Now().Add(overlap)
+	for i := range previous {
+		r.markExpiring(ctx, &previous[i], expires)
+	}
+	r.Recorder.Eventf(claim, corev1.EventTypeNormal, "Rotated", "derived credential generation %d active; overlap %s", generation, overlap)
+	now := metav1.Now()
+	return key, &now, nil
 }

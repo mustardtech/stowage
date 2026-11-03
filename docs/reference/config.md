@@ -162,6 +162,7 @@ The following env vars are read directly (no config-file equivalent):
 | Variable | Effect |
 |---|---|
 | `STOWAGE_SECRET_KEY` | AES-256 root key. 64 hex chars or 44 base64 chars. Takes precedence over `secret_key_file`. |
+| `STOWAGE_CREDENTIAL_ROOT` | Shared root for derived claim credentials (`spec.credentialGeneration`), same 32-byte format. Unset = derived claims fail Ready. See kubernetes/rotation.md. |
 | `STOWAGE_PPROF_LISTEN` | If set, exposes `/debug/pprof/*` on the given address. |
 
 Backend access keys, OIDC client secrets, and the static-auth password

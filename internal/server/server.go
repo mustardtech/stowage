@@ -453,10 +453,15 @@ func (s *Server) Run(ctx context.Context) error {
 		// With the operator role this is the real manager (reconcilers,
 		// webhooks, Lease). Without it, only the read-only S3Backend mirror
 		// runs so the proxy/dashboard can resolve CR-defined backends.
+		credRoot, rerr := opmgr.CredentialRootFromEnv()
+		if rerr != nil {
+			return rerr
+		}
 		pending++
 		go func() {
 			errCh <- opmgr.Start(ctx, opmgr.Config{
 				MirrorOnly:       !s.roles.Operator,
+				CredentialRoot:   credRoot,
 				Kubeconfig:       s.cfg.Operator.Kubeconfig,
 				MetricsAddr:      s.cfg.Operator.MetricsAddr,
 				OpsNamespace:     s.cfg.Operator.OpsNamespace,

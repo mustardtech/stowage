@@ -67,6 +67,12 @@ func validateCommon(c *brokerv1a1.BucketClaim) error {
 	if rp := c.Spec.RotationPolicy; rp != nil && rp.Mode == brokerv1a1.RotationModeTimeBased && rp.IntervalDays < 7 {
 		return fmt.Errorf("spec.rotationPolicy.intervalDays must be >= 7 when mode=TimeBased")
 	}
+	if c.Spec.CredentialGeneration < 0 {
+		return fmt.Errorf("spec.credentialGeneration must be >= 0")
+	}
+	if rp := c.Spec.RotationPolicy; c.Spec.CredentialGeneration > 0 && rp != nil && rp.Mode == brokerv1a1.RotationModeTimeBased {
+		return fmt.Errorf("spec.credentialGeneration (derived credentials) cannot be combined with rotationPolicy.mode=TimeBased; bump credentialGeneration to rotate")
+	}
 	if a := c.Spec.AnonymousAccess; a != nil {
 		switch a.Mode {
 		case "", brokerv1a1.AnonymousModeNone, brokerv1a1.AnonymousModeReadOnly:

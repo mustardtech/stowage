@@ -122,6 +122,7 @@ type RotationPolicy struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!self.forceDelete || self.deletionPolicy == 'Delete'",message="forceDelete=true requires deletionPolicy=Delete"
+// +kubebuilder:validation:XValidation:rule="!has(self.credentialGeneration) || self.credentialGeneration == 0 || !has(self.rotationPolicy) || self.rotationPolicy.mode != 'TimeBased'",message="credentialGeneration (derived credentials) cannot be combined with TimeBased rotation; bump credentialGeneration to rotate"
 type BucketClaimSpec struct {
 	BackendRef BackendRef `json:"backendRef"`
 
@@ -143,6 +144,17 @@ type BucketClaimSpec struct {
 
 	// +optional
 	RotationPolicy *RotationPolicy `json:"rotationPolicy,omitempty"`
+
+	// CredentialGeneration switches the claim to a DERIVED credential: the
+	// access key id and secret become a pure function of the operator's
+	// shared credential root, this claim's identity (backend, bucket,
+	// namespace, name) and this number. Every operator holding the same
+	// root mints the same key, so the claim works unchanged in every
+	// cluster it is deployed to. 0 (default) keeps a random key. Rotate by
+	// bumping the number; TimeBased rotation is rejected alongside it.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CredentialGeneration int32 `json:"credentialGeneration,omitempty"`
 
 	// +optional
 	AnonymousAccess *AnonymousAccess `json:"anonymousAccess,omitempty"`

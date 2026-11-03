@@ -78,6 +78,36 @@ Two patterns:
 a rolling restart of typical workloads, short enough that a leaked
 credential is short-lived.
 
+## Derived credentials (the same key in every cluster)
+
+A claim deployed to more than one cluster normally gets a different random
+key from each cluster's operator. Set `spec.credentialGeneration: 1` and
+the key becomes a pure function of the operator's shared **credential
+root**, the claim identity (backend name, bucket name, namespace, claim
+name) and that number: every operator holding the same root mints the same
+access key id and secret, with no traffic between clusters. A workload that
+fails over keeps its credentials.
+
+```yaml
+spec:
+  credentialGeneration: 1
+```
+
+- The root is 32 random bytes (64 hex or 44 base64 chars, the
+  `STOWAGE_SECRET_KEY` format) in the `STOWAGE_CREDENTIAL_ROOT` environment
+  variable of the operator; the chart takes it from a Secret
+  (`operator.credentialRoot.existingSecret`). Distribute the same Secret to
+  every cluster, for example through External Secrets from one vault.
+- Rotate by bumping `credentialGeneration`. The previous key stays valid for
+  `rotationPolicy.overlapSeconds` (default 300), like a time-based rotation;
+  `TimeBased` mode itself is rejected on a derived claim.
+- Switching an existing claim from a random key (generation 0) to generation 1
+  is a rotation too: the consumer Secret changes, the old key overlaps and
+  expires.
+- An operator without a root marks such claims `Ready=False` with reason
+  `CredentialsInvalid` instead of silently minting a random key.
+- The claim UID is not part of the identity, since it differs per cluster.
+
 ## Forcing immediate revocation
 
 To revoke a credential immediately (e.g. suspected compromise),
